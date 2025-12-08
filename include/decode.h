@@ -1,14 +1,61 @@
 /*
- * Public entry points for the DTMF decoder CLI.
+ * Public entry points for the SPRA096A-style DTMF decoder.
  *
- * The decoder consumes 16-bit PCM mono WAV files and emits the detected DTMF
- * symbol stream to stdout. It is intentionally small: the heavy lifting lives in
- * src/decode.c while this header keeps the interface clear for any future
- * callers (tests, alternate UIs, etc.).
+ * The decoder operates on fixed 102-sample blocks at 8 kHz and exposes a small
+ * state machine so callers can feed successive blocks of samples and receive
+ * debounced ASCII digits. A CLI harness in src/decode_main.c demonstrates the
+ * flow by walking through a WAV file and printing confirmed digits to stdout.
  */
 
 #ifndef DTMF_DECODE_H
 #define DTMF_DECODE_H
+
+#include <stdint.h>
+
+#define DTMF_N 102
+
+typedef struct {
+    double k;      /* Tuned bin index (can be fractional). */
+    double coeff;  /* 2 * cos(omega) precomputed for the recurrence. */
+} GoertzelConfig;
+
+typedef struct {
+    GoertzelConfig row[4];
+    GoertzelConfig col[4];
+    GoertzelConfig row2[4];
+    GoertzelConfig col2[4];
+} DtmfFilterConfig;
+
+typedef struct {
+    double row_energy[4];
+    double col_energy[4];
+    double row2_energy[4];
+    double col2_energy[4];
+} DtmfEnergyTemplate;
+
+typedef struct {
+    const DtmfFilterConfig *cfg;
+    char last_digit;   /* Last digit emitted to the caller. */
+    char stable_digit; /* Digit currently accumulating stability. */
+    int  stable_count; /* How many consecutive blocks matched. */
+} DtmfDetectorState;
+
+/* Initialize the precomputed Goertzel coefficients for tuned DTMF bins. */
+void dtmf_init_filter_config(DtmfFilterConfig *cfg);
+
+/* Run the Goertzel bank on one 102-sample block. */
+void dtmf_compute_energy_block(const int16_t *samples,
+                               const DtmfFilterConfig *cfg,
+                               DtmfEnergyTemplate *out);
+
+/* Reset detector bookkeeping before processing a stream. */
+void dtmf_detector_init(DtmfDetectorState *st, const DtmfFilterConfig *cfg);
+
+/*
+ * Process one block; return 0 if no new digit was confirmed this block or the
+ * ASCII digit if stability criteria were satisfied.
+ */
+char dtmf_detector_process_block(DtmfDetectorState *st, const int16_t *samples);
 
 /* Decode a WAV file and print the detected DTMF digits to stdout. */
 void decode_wav(const char *path);

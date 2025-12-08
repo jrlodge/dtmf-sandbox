@@ -1,16 +1,15 @@
 /*
- * DTMF decoder implementation.
+ * TI SPRA096A-inspired DTMF decoder.
  *
- * This file mirrors the structure of the tone generator: the public entry point
- * (decode_wav) orchestrates a handful of small helpers for reading a WAV file,
- * chunking it into analysis frames, and measuring the eight DTMF frequencies
- * with the Goertzel algorithm from dtmf.c. The goal is to keep the decoding
- * pipeline cohesive and well-commented rather than a collection of standalone
- * snippets.
+ * This implementation mirrors the structure of the TI application report: a
+ * fixed Goertzel bank tuned to the DTMF fundamentals and their second harmonics,
+ * block-based processing on 102-sample buffers at 8 kHz, and a sequence of
+ * validity checks (energy, dominance, twist, harmonic rejection, stability)
+ * before emitting digits. The math remains double-precision for clarity; the
+ * layout is designed so the code can be ported to fixed-point later.
  */
 
-#include "decode.h"  /* Public decoder entry point */
-#include "dtmf.h"    /* Reuse Goertzel helpers from the core library */
+#include "decode.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -18,13 +17,30 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+#define SAMPLE_RATE 8000
+
+/* --- Thresholds (tunable) --- */
+#define THR_SIG 1e8               /* Minimum combined energy to consider a tone. */
+#define THR_ROWREL 6.0            /* Row peak dominance over next row (dB). */
+#define THR_COLREL 6.0            /* Column peak dominance over next column (dB). */
+#define TWIST_REV_MAX_DB 8.0      /* Row louder than column upper bound (dB). */
+#define TWIST_STD_MAX_DB 4.0      /* Column louder than row upper bound (dB). */
+#define THR_ROW2_MAX_DB -20.0     /* Row 2nd harmonic relative to row peak (dB). */
+#define THR_COL2_MAX_DB -20.0     /* Column 2nd harmonic relative to col peak (dB). */
+#define STABILITY_BLOCKS 2        /* Blocks required before emitting digit. */
+#define ENERGY_EPS 1e-12
+
+/* --- WAV loader (16-bit PCM mono only) --- */
+
 typedef struct {
     int16_t *samples;
     int      num_samples;
     int      sample_rate;
 } WavData;
-
-/* --- Minimal WAV loader for 16-bit PCM mono files --- */
 
 static int read_u32_le(FILE *f, uint32_t *out) {
     uint8_t b[4];
@@ -60,6 +76,7 @@ static WavData load_wav(const char *path) {
 
     uint32_t chunk_size;
     if (!read_u32_le(f, &chunk_size)) { fclose(f); return wav; }
+    (void)chunk_size; /* RIFF chunk size not needed beyond validation. */
 
     char wave[4];
     if (fread(wave, 1, 4, f) != 4 || strncmp(wave, "WAVE", 4) != 0) {
@@ -75,8 +92,6 @@ static WavData load_wav(const char *path) {
     uint32_t data_size = 0;
     long     data_offset = 0;
 
-    /* Parse RIFF chunks until we find both the fmt and data blocks. Unknown
-     * chunks are skipped so minimally valid WAV files still decode. */
     for (;;) {
         char id[4];
         if (fread(id, 1, 4, f) != 4) {
@@ -111,15 +126,13 @@ static WavData load_wav(const char *path) {
                 return wav;
             }
 
-            /* Skip any extra fmt bytes beyond the canonical 16-byte PCM body. */
             long remaining = (long)size - 16;
             if (remaining > 0) fseek(f, remaining, SEEK_CUR);
         } else if (strncmp(id, "data", 4) == 0) {
             data_size = size;
             data_offset = ftell(f);
-            fseek(f, size, SEEK_CUR); /* skip for now */
+            fseek(f, size, SEEK_CUR);
         } else {
-            /* Skip unknown chunk */
             fseek(f, size, SEEK_CUR);
         }
 
@@ -134,12 +147,12 @@ static WavData load_wav(const char *path) {
     }
 
     if (num_channels != 1) {
-        fprintf(stderr, "Expected mono, got %u channels; using left channel only not implemented\n", num_channels);
+        fprintf(stderr, "Expected mono; only mono supported\n");
         fclose(f);
         return wav;
     }
 
-    int num_samples = (int)(data_size / 2); // 16-bit mono
+    int num_samples = (int)(data_size / 2);
     int16_t *samples = (int16_t *)malloc(data_size);
     if (!samples) {
         fprintf(stderr, "malloc failed\n");
@@ -170,36 +183,59 @@ static void free_wav(WavData *wav) {
     }
 }
 
-/* --- Goertzel wrapper --- */
+/* --- Filter configuration --- */
 
-/*
- * Measure the power of a target frequency within a frame using the shared
- * Goertzel helpers from dtmf.c. The Goertzel utilities return a linear
- * magnitude; the decoder continues to operate on power (magnitude squared)
- * so its thresholds remain consistent with the original implementation.
- */
-static double goertzel_power(const int16_t *samples, int N, double freq, int sample_rate) {
-    goertzel_state_t state;
-    goertzel_init(&state, freq, sample_rate, N);
-
-    for (int i = 0; i < N; i++) {
-        goertzel_process_sample(&state, (double)samples[i]);
-    }
-
-    double mag = goertzel_magnitude(&state);
-    return mag * mag;
+static void set_cfg(GoertzelConfig *dst, double k) {
+    dst->k = k;
+    double omega = 2.0 * M_PI * k / DTMF_N;
+    dst->coeff = 2.0 * cos(omega);
 }
 
-/* --- DTMF decoding --- */
+void dtmf_init_filter_config(DtmfFilterConfig *cfg) {
+    static const double row_k[4]  = {8.88, 9.82, 10.86, 12.0};
+    static const double col_k[4]  = {15.42, 17.03, 18.83, 20.82};
+    static const double row2_k[4] = {17.93, 19.72, 21.72, 24.0};
+    static const double col2_k[4] = {30.83, 34.07, 37.66, 41.64};
 
-#define FRAME_SIZE   205       // ~25.6 ms at 8 kHz
-#define MIN_ENERGY   1e7       // tweak as needed
-#define MIN_RATIO_DB 6.0       // dominant vs next-bin
+    for (int i = 0; i < 4; i++) set_cfg(&cfg->row[i], row_k[i]);
+    for (int i = 0; i < 4; i++) set_cfg(&cfg->col[i], col_k[i]);
+    for (int i = 0; i < 4; i++) set_cfg(&cfg->row2[i], row2_k[i]);
+    for (int i = 0; i < 4; i++) set_cfg(&cfg->col2[i], col2_k[i]);
+}
 
-static const double dtmf_freqs[8] = {
-    697.0, 770.0, 852.0, 941.0,     // rows
-    1209.0, 1336.0, 1477.0, 1633.0  // cols
-};
+/* --- Goertzel processing --- */
+
+static double goertzel_mag2(const int16_t *samples, const GoertzelConfig *cfg) {
+    double v_prev = 0.0;
+    double v_prev2 = 0.0;
+    double coeff = cfg->coeff;
+
+    for (int i = 0; i < DTMF_N; i++) {
+        double v = (double)samples[i] + coeff * v_prev - v_prev2;
+        v_prev2 = v_prev;
+        v_prev = v;
+    }
+
+    double omega = 2.0 * M_PI * cfg->k / DTMF_N;
+    double cos_omega = cos(omega);
+    double sin_omega = sin(omega);
+    double real = v_prev - v_prev2 * cos_omega;
+    double imag = v_prev2 * sin_omega;
+    return real * real + imag * imag;
+}
+
+void dtmf_compute_energy_block(const int16_t *samples,
+                               const DtmfFilterConfig *cfg,
+                               DtmfEnergyTemplate *out) {
+    for (int i = 0; i < 4; i++) {
+        out->row_energy[i]  = goertzel_mag2(samples, &cfg->row[i]);
+        out->col_energy[i]  = goertzel_mag2(samples, &cfg->col[i]);
+        out->row2_energy[i] = goertzel_mag2(samples, &cfg->row2[i]);
+        out->col2_energy[i] = goertzel_mag2(samples, &cfg->col2[i]);
+    }
+}
+
+/* --- Detector helpers --- */
 
 static const char dtmf_map[4][4] = {
     {'1','2','3','A'},
@@ -208,58 +244,96 @@ static const char dtmf_map[4][4] = {
     {'*','0','#','D'}
 };
 
-static char detect_frame(const int16_t *frame, int sample_rate) {
-    double mags[8];
-
-    /* Measure all eight DTMF frequencies within the frame. */
-    for (int i = 0; i < 8; i++)
-        mags[i] = goertzel_power(frame, FRAME_SIZE, dtmf_freqs[i], sample_rate);
-
-    /* Identify the dominant row tone (low frequency group) and track the
-     * runner-up for ratio testing. */
-    int row_idx = 0;
-    double row_peak = mags[0];
-    double row_next = 0.0;
-    for (int i = 1; i < 4; i++) {
-        if (mags[i] > row_peak) {
-            row_next = row_peak;
-            row_peak = mags[i];
-            row_idx = i;
-        } else if (mags[i] > row_next) {
-            row_next = mags[i];
+static void find_peak(const double *arr, int len, double *peak, double *next, int *idx) {
+    *peak = arr[0];
+    *next = 0.0;
+    *idx = 0;
+    for (int i = 1; i < len; i++) {
+        if (arr[i] > *peak) {
+            *next = *peak;
+            *peak = arr[i];
+            *idx = i;
+        } else if (arr[i] > *next) {
+            *next = arr[i];
         }
     }
-
-    /* Identify the dominant column tone (high frequency group). */
-    int col_idx = 4;
-    double col_peak = mags[4];
-    double col_next = 0.0;
-    for (int i = 5; i < 8; i++) {
-        if (mags[i] > col_peak) {
-            col_next = col_peak;
-            col_peak = mags[i];
-            col_idx = i;
-        } else if (mags[i] > col_next) {
-            col_next = mags[i];
-        }
-    }
-
-    /* Bail early if the frame is too quiet to contain a valid tone. */
-    if (row_peak < MIN_ENERGY || col_peak < MIN_ENERGY)
-        return 0;
-
-    /* Ratio test: the dominant row/column bins must be sufficiently stronger
-     * than the next-best candidate within their groups. */
-    double row_ratio_db = 10.0 * log10(row_peak / (row_next + 1.0));
-    double col_ratio_db = 10.0 * log10(col_peak / (col_next + 1.0));
-
-    if (row_ratio_db < MIN_RATIO_DB || col_ratio_db < MIN_RATIO_DB)
-        return 0;
-
-    int row = row_idx;
-    int col = col_idx - 4;
-    return dtmf_map[row][col];
 }
+
+void dtmf_detector_init(DtmfDetectorState *st, const DtmfFilterConfig *cfg) {
+    st->cfg = cfg;
+    st->last_digit = 0;
+    st->stable_digit = 0;
+    st->stable_count = 0;
+}
+
+char dtmf_detector_process_block(DtmfDetectorState *st, const int16_t *samples) {
+    DtmfEnergyTemplate e = {0};
+    dtmf_compute_energy_block(samples, st->cfg, &e);
+
+    double row_peak, row_next, col_peak, col_next;
+    int row_idx, col_idx;
+    find_peak(e.row_energy, 4, &row_peak, &row_next, &row_idx);
+    find_peak(e.col_energy, 4, &col_peak, &col_next, &col_idx);
+
+    double signal = row_peak + col_peak;
+    if (signal < THR_SIG) {
+        st->stable_digit = 0;
+        st->stable_count = 0;
+        st->last_digit = 0;
+        return 0;
+    }
+
+    double row_rel_db = 10.0 * log10(row_peak / (row_next + ENERGY_EPS));
+    double col_rel_db = 10.0 * log10(col_peak / (col_next + ENERGY_EPS));
+    if (row_rel_db < THR_ROWREL || col_rel_db < THR_COLREL) {
+        st->stable_digit = 0;
+        st->stable_count = 0;
+        st->last_digit = 0;
+        return 0;
+    }
+
+    double rev_db = 10.0 * log10(row_peak / (col_peak + ENERGY_EPS));
+    double std_db = 10.0 * log10(col_peak / (row_peak + ENERGY_EPS));
+    if (rev_db > TWIST_REV_MAX_DB || std_db > TWIST_STD_MAX_DB) {
+        st->stable_digit = 0;
+        st->stable_count = 0;
+        st->last_digit = 0;
+        return 0;
+    }
+
+    double row2_peak, row2_next, col2_peak, col2_next;
+    int dummy;
+    find_peak(e.row2_energy, 4, &row2_peak, &row2_next, &dummy);
+    find_peak(e.col2_energy, 4, &col2_peak, &col2_next, &dummy);
+    (void)row2_next;
+    (void)col2_next;
+
+    double row2_ratio = 10.0 * log10(row2_peak / (row_peak + ENERGY_EPS));
+    double col2_ratio = 10.0 * log10(col2_peak / (col_peak + ENERGY_EPS));
+    if (row2_ratio > THR_ROW2_MAX_DB || col2_ratio > THR_COL2_MAX_DB) {
+        st->stable_digit = 0;
+        st->stable_count = 0;
+        st->last_digit = 0;
+        return 0;
+    }
+
+    char digit = dtmf_map[row_idx][col_idx];
+    if (digit == st->stable_digit) {
+        st->stable_count++;
+    } else {
+        st->stable_digit = digit;
+        st->stable_count = 1;
+    }
+
+    if (st->stable_count >= STABILITY_BLOCKS && digit != st->last_digit) {
+        st->last_digit = digit;
+        return digit;
+    }
+
+    return 0;
+}
+
+/* --- WAV-oriented harness --- */
 
 void decode_wav(const char *path) {
     WavData w = load_wav(path);
@@ -268,39 +342,32 @@ void decode_wav(const char *path) {
         return;
     }
 
-    /* Each frame is evaluated independently. A small hysteresis counter forces
-     * multiple identical detections in a row before emitting a symbol so minor
-     * jitter or transient noise does not produce spurious digits. */
-    int frames = w.num_samples / FRAME_SIZE;
-    int stable_count = 0;
-    char last_symbol = 0;
-    char current_symbol = 0;
+    if (w.sample_rate != SAMPLE_RATE) {
+        fprintf(stderr, "Expected %d Hz sample rate, got %d\n", SAMPLE_RATE, w.sample_rate);
+        free_wav(&w);
+        return;
+    }
 
-    printf("Decoding %s (sample_rate=%d, frames=%d)\n", path, w.sample_rate, frames);
+    DtmfFilterConfig cfg;
+    dtmf_init_filter_config(&cfg);
+
+    DtmfDetectorState st;
+    dtmf_detector_init(&st, &cfg);
+
+    int blocks = w.num_samples / DTMF_N;
+
+    printf("Decoding %s (sample_rate=%d, blocks=%d)\n", path, w.sample_rate, blocks);
     printf("Decoded: ");
 
-    for (int f = 0; f < frames; f++) {
-        const int16_t *frame = &w.samples[f * FRAME_SIZE];
-        char sym = detect_frame(frame, w.sample_rate);
-
-        if (sym == current_symbol) {
-            if (sym != 0) stable_count++;
-        } else {
-            current_symbol = sym;
-            stable_count = (sym != 0) ? 1 : 0;
+    for (int b = 0; b < blocks; b++) {
+        const int16_t *blk = &w.samples[b * DTMF_N];
+        char d = dtmf_detector_process_block(&st, blk);
+        if (d) {
+            putchar(d);
         }
 
-        /* Require three consecutive matching detections before emitting to
-         * stdout. This keeps brief glitches from appearing as separate digits. */
-        if (current_symbol != 0 && stable_count == 3 && current_symbol != last_symbol) {
-            putchar(current_symbol);
-            last_symbol = current_symbol;
-        }
-
-        /* Reset the last emitted symbol after silence so repeated digits can be
-         * printed if they are separated by a gap. */
-        if (current_symbol == 0) {
-            last_symbol = 0;
+        if (d == 0 && st.stable_digit == 0) {
+            st.last_digit = 0; /* Allow repeats after silence. */
         }
     }
 
