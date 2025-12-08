@@ -1,3 +1,13 @@
+/*
+ * Public API surface for the DTMF Lab library.
+ *
+ * This header exposes the data structures and functions shared between the
+ * command-line application and any other consumers (tests, GUI front-ends,
+ * etc.). The focus is on small, composable primitives: mapping keys to
+ * frequencies, generating raw samples, writing WAV files, and initializing the
+ * Goertzel detector for future decoding work.
+ */
+
 #ifndef DTMF_H
 #define DTMF_H
 
@@ -14,7 +24,7 @@ typedef struct {
 typedef struct {
     int sample_rate;      /* Samples per second (e.g., 8000, 44100) */
     int duration_ms;      /* Duration in milliseconds */
-    double amplitude;     /* Amplitude (0.0 to 1.0) */
+    double amplitude;     /* Amplitude (0.0 to 1.0). Mixed tones are scaled by this. */
 } dtmf_params_t;
 
 /* WAV file header structure */
