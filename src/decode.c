@@ -1,19 +1,22 @@
-// src/decode.c
-// Simple DTMF decoder for clean lab signals.
-// - Loads a 16-bit PCM mono WAV.
-// - Splits into frames.
-// - Runs Goertzel on 8 DTMF frequencies.
-// - Emits digits when tones are present.
+/*
+ * DTMF decoder implementation.
+ *
+ * This file mirrors the structure of the tone generator: the public entry point
+ * (decode_wav) orchestrates a handful of small helpers for reading a WAV file,
+ * chunking it into analysis frames, and measuring the eight DTMF frequencies
+ * with the Goertzel algorithm from dtmf.c. The goal is to keep the decoding
+ * pipeline cohesive and well-commented rather than a collection of standalone
+ * snippets.
+ */
 
+#include "decode.h"  /* Public decoder entry point */
+#include "dtmf.h"    /* Reuse Goertzel helpers from the core library */
+
+#include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
-#include <math.h>
 #include <string.h>
-
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
 
 typedef struct {
     int16_t *samples;
@@ -72,7 +75,8 @@ static WavData load_wav(const char *path) {
     uint32_t data_size = 0;
     long     data_offset = 0;
 
-    // parse chunks
+    /* Parse RIFF chunks until we find both the fmt and data blocks. Unknown
+     * chunks are skipped so minimally valid WAV files still decode. */
     for (;;) {
         char id[4];
         if (fread(id, 1, 4, f) != 4) {
@@ -107,15 +111,15 @@ static WavData load_wav(const char *path) {
                 return wav;
             }
 
-            // skip any extra fmt bytes
+            /* Skip any extra fmt bytes beyond the canonical 16-byte PCM body. */
             long remaining = (long)size - 16;
             if (remaining > 0) fseek(f, remaining, SEEK_CUR);
         } else if (strncmp(id, "data", 4) == 0) {
             data_size = size;
             data_offset = ftell(f);
-            fseek(f, size, SEEK_CUR); // skip for now
+            fseek(f, size, SEEK_CUR); /* skip for now */
         } else {
-            // skip unknown chunk
+            /* Skip unknown chunk */
             fseek(f, size, SEEK_CUR);
         }
 
@@ -166,25 +170,24 @@ static void free_wav(WavData *wav) {
     }
 }
 
-/* --- Goertzel implementation --- */
+/* --- Goertzel wrapper --- */
 
-static double goertzel_mag2(const int16_t *samples, int N, double freq, int sample_rate) {
-    double s_prev = 0.0;
-    double s_prev2 = 0.0;
-    double k = 0.5 + (N * freq) / sample_rate;
-    double w = (2.0 * M_PI * k) / N;
-    double coeff = 2.0 * cos(w);
+/*
+ * Measure the power of a target frequency within a frame using the shared
+ * Goertzel helpers from dtmf.c. The Goertzel utilities return a linear
+ * magnitude; the decoder continues to operate on power (magnitude squared)
+ * so its thresholds remain consistent with the original implementation.
+ */
+static double goertzel_power(const int16_t *samples, int N, double freq, int sample_rate) {
+    goertzel_state_t state;
+    goertzel_init(&state, freq, sample_rate, N);
 
     for (int i = 0; i < N; i++) {
-        double x = (double)samples[i];
-        double s = x + coeff * s_prev - s_prev2;
-        s_prev2 = s_prev;
-        s_prev = s;
+        goertzel_process_sample(&state, (double)samples[i]);
     }
 
-    double real = s_prev - s_prev2 * cos(w);
-    double imag = s_prev2 * sin(w);
-    return real * real + imag * imag;
+    double mag = goertzel_magnitude(&state);
+    return mag * mag;
 }
 
 /* --- DTMF decoding --- */
@@ -208,10 +211,12 @@ static const char dtmf_map[4][4] = {
 static char detect_frame(const int16_t *frame, int sample_rate) {
     double mags[8];
 
+    /* Measure all eight DTMF frequencies within the frame. */
     for (int i = 0; i < 8; i++)
-        mags[i] = goertzel_mag2(frame, FRAME_SIZE, dtmf_freqs[i], sample_rate);
+        mags[i] = goertzel_power(frame, FRAME_SIZE, dtmf_freqs[i], sample_rate);
 
-    // find row max
+    /* Identify the dominant row tone (low frequency group) and track the
+     * runner-up for ratio testing. */
     int row_idx = 0;
     double row_peak = mags[0];
     double row_next = 0.0;
@@ -225,7 +230,7 @@ static char detect_frame(const int16_t *frame, int sample_rate) {
         }
     }
 
-    // find col max
+    /* Identify the dominant column tone (high frequency group). */
     int col_idx = 4;
     double col_peak = mags[4];
     double col_next = 0.0;
@@ -239,10 +244,12 @@ static char detect_frame(const int16_t *frame, int sample_rate) {
         }
     }
 
+    /* Bail early if the frame is too quiet to contain a valid tone. */
     if (row_peak < MIN_ENERGY || col_peak < MIN_ENERGY)
         return 0;
 
-    // ratio test (dominant vs next strongest in that group)
+    /* Ratio test: the dominant row/column bins must be sufficiently stronger
+     * than the next-best candidate within their groups. */
     double row_ratio_db = 10.0 * log10(row_peak / (row_next + 1.0));
     double col_ratio_db = 10.0 * log10(col_peak / (col_next + 1.0));
 
@@ -261,6 +268,9 @@ void decode_wav(const char *path) {
         return;
     }
 
+    /* Each frame is evaluated independently. A small hysteresis counter forces
+     * multiple identical detections in a row before emitting a symbol so minor
+     * jitter or transient noise does not produce spurious digits. */
     int frames = w.num_samples / FRAME_SIZE;
     int stable_count = 0;
     char last_symbol = 0;
@@ -280,13 +290,15 @@ void decode_wav(const char *path) {
             stable_count = (sym != 0) ? 1 : 0;
         }
 
-        // require a few consecutive frames of same tone before emitting
+        /* Require three consecutive matching detections before emitting to
+         * stdout. This keeps brief glitches from appearing as separate digits. */
         if (current_symbol != 0 && stable_count == 3 && current_symbol != last_symbol) {
             putchar(current_symbol);
             last_symbol = current_symbol;
         }
 
-        // reset last_symbol when silence
+        /* Reset the last emitted symbol after silence so repeated digits can be
+         * printed if they are separated by a gap. */
         if (current_symbol == 0) {
             last_symbol = 0;
         }

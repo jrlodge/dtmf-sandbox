@@ -15,13 +15,19 @@ INC_DIR = include
 BUILD_DIR = build
 
 TARGET = dtmf-lab
+DECODER_TARGET = dtmf-decode
+
 SOURCES = $(SRC_DIR)/dtmf.c $(SRC_DIR)/main.c
+DECODER_SOURCES = $(SRC_DIR)/dtmf.c $(SRC_DIR)/decode.c $(SRC_DIR)/decode_main.c
+
 OBJECTS = $(BUILD_DIR)/dtmf.o $(BUILD_DIR)/main.o
-HEADERS = $(INC_DIR)/dtmf.h
+DECODER_OBJECTS = $(BUILD_DIR)/dtmf.o $(BUILD_DIR)/decode.o $(BUILD_DIR)/decode_main.o
+
+HEADERS = $(INC_DIR)/dtmf.h $(INC_DIR)/decode.h
 
 .PHONY: all clean run test
 
-all: $(TARGET)
+all: $(TARGET) $(DECODER_TARGET)
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -32,8 +38,11 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c $(HEADERS) | $(BUILD_DIR)
 $(TARGET): $(OBJECTS)
 	$(CC) $(OBJECTS) $(LDFLAGS) -o $(TARGET)
 
+$(DECODER_TARGET): $(DECODER_OBJECTS)
+	$(CC) $(DECODER_OBJECTS) $(LDFLAGS) -o $(DECODER_TARGET)
+
 clean:
-	rm -rf $(BUILD_DIR) $(TARGET) *.wav
+	rm -rf $(BUILD_DIR) $(TARGET) $(DECODER_TARGET) *.wav
 
 run: $(TARGET)
 	./$(TARGET) --help
