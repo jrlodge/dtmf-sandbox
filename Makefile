@@ -16,18 +16,21 @@ BUILD_DIR = build
 
 TARGET = dtmf-lab
 DECODER_TARGET = dtmf-decode
+NOISE_TARGET = noise-mix
 
 SOURCES = $(SRC_DIR)/dtmf.c $(SRC_DIR)/main.c
 DECODER_SOURCES = $(SRC_DIR)/dtmf.c $(SRC_DIR)/decode.c $(SRC_DIR)/decode_main.c
+NOISE_SOURCES = $(SRC_DIR)/noise_mix.c
 
 OBJECTS = $(BUILD_DIR)/dtmf.o $(BUILD_DIR)/main.o
 DECODER_OBJECTS = $(BUILD_DIR)/dtmf.o $(BUILD_DIR)/decode.o $(BUILD_DIR)/decode_main.o
+NOISE_OBJECTS = $(BUILD_DIR)/noise_mix.o
 
 HEADERS = $(INC_DIR)/dtmf.h $(INC_DIR)/decode.h
 
 .PHONY: all clean run test
 
-all: $(TARGET) $(DECODER_TARGET)
+all: $(TARGET) $(DECODER_TARGET) $(NOISE_TARGET)
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -41,8 +44,11 @@ $(TARGET): $(OBJECTS)
 $(DECODER_TARGET): $(DECODER_OBJECTS)
 	$(CC) $(DECODER_OBJECTS) $(LDFLAGS) -o $(DECODER_TARGET)
 
+$(NOISE_TARGET): $(NOISE_OBJECTS)
+	$(CC) $(NOISE_OBJECTS) $(LDFLAGS) -o $(NOISE_TARGET)
+
 clean:
-	rm -rf $(BUILD_DIR) $(TARGET) $(DECODER_TARGET) *.wav
+	rm -rf $(BUILD_DIR) $(TARGET) $(DECODER_TARGET) $(NOISE_TARGET) *.wav
 
 run: $(TARGET)
 	./$(TARGET) --help
