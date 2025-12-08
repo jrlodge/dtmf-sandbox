@@ -13,10 +13,16 @@ LDFLAGS = -lm
 SRC_DIR = src
 INC_DIR = include
 BUILD_DIR = build
+BIN_DIR = bin
+WAV_DIR = artifacts/wav
 
 TARGET = dtmf-lab
 DECODER_TARGET = dtmf-decode
 NOISE_TARGET = noise-mix
+
+TARGET_PATH = $(BIN_DIR)/$(TARGET)
+DECODER_TARGET_PATH = $(BIN_DIR)/$(DECODER_TARGET)
+NOISE_TARGET_PATH = $(BIN_DIR)/$(NOISE_TARGET)
 
 SOURCES = $(SRC_DIR)/dtmf.c $(SRC_DIR)/main.c
 DECODER_SOURCES = $(SRC_DIR)/dtmf.c $(SRC_DIR)/decode.c $(SRC_DIR)/decode_main.c
@@ -30,46 +36,52 @@ HEADERS = $(INC_DIR)/dtmf.h $(INC_DIR)/decode.h
 
 .PHONY: all clean run test
 
-all: $(TARGET) $(DECODER_TARGET) $(NOISE_TARGET)
+all: $(TARGET_PATH) $(DECODER_TARGET_PATH) $(NOISE_TARGET_PATH)
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
+$(BIN_DIR):
+	mkdir -p $(BIN_DIR)
+
+$(WAV_DIR):
+	mkdir -p $(WAV_DIR)
+
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c $(HEADERS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(TARGET): $(OBJECTS)
-	$(CC) $(OBJECTS) $(LDFLAGS) -o $(TARGET)
+$(TARGET_PATH): $(OBJECTS) | $(BIN_DIR)
+	$(CC) $(OBJECTS) $(LDFLAGS) -o $@
 
-$(DECODER_TARGET): $(DECODER_OBJECTS)
-	$(CC) $(DECODER_OBJECTS) $(LDFLAGS) -o $(DECODER_TARGET)
+$(DECODER_TARGET_PATH): $(DECODER_OBJECTS) | $(BIN_DIR)
+	$(CC) $(DECODER_OBJECTS) $(LDFLAGS) -o $@
 
-$(NOISE_TARGET): $(NOISE_OBJECTS)
-	$(CC) $(NOISE_OBJECTS) $(LDFLAGS) -o $(NOISE_TARGET)
+$(NOISE_TARGET_PATH): $(NOISE_OBJECTS) | $(BIN_DIR)
+	$(CC) $(NOISE_OBJECTS) $(LDFLAGS) -o $@
 
 clean:
-	rm -rf $(BUILD_DIR) $(TARGET) $(DECODER_TARGET) $(NOISE_TARGET) *.wav
+	rm -rf $(BUILD_DIR) $(BIN_DIR) $(WAV_DIR) *.wav
 
-run: $(TARGET)
-	./$(TARGET) --help
+run: $(TARGET_PATH)
+	./$(TARGET_PATH) --help
 
-test: $(TARGET)
+test: $(TARGET_PATH) | $(WAV_DIR)
 	@echo "Testing single key..."
-	./$(TARGET) -o test_5.wav 5
+	./$(TARGET_PATH) -o $(WAV_DIR)/test_5.wav 5
 	@echo ""
 	@echo "Testing sequence..."
-	./$(TARGET) -o test_sequence.wav 1234567890
+	./$(TARGET_PATH) -o $(WAV_DIR)/test_sequence.wav 1234567890
 	@echo ""
 	@echo "Testing special keys..."
-	./$(TARGET) -o test_star.wav '*'
-	./$(TARGET) -o test_hash.wav '#'
-	./$(TARGET) -o test_abcd.wav ABCD
+	./$(TARGET_PATH) -o $(WAV_DIR)/test_star.wav '*'
+	./$(TARGET_PATH) -o $(WAV_DIR)/test_hash.wav '#'
+	./$(TARGET_PATH) -o $(WAV_DIR)/test_abcd.wav ABCD
 	@echo ""
 	@echo "All tests completed! Generated WAV files:"
-	@ls -lh test_*.wav
+	@ls -lh $(WAV_DIR)/test_*.wav
 
-install: $(TARGET)
-	install -m 755 $(TARGET) /usr/local/bin/
+install: $(TARGET_PATH)
+	install -m 755 $(TARGET_PATH) /usr/local/bin/$(TARGET)
 
 uninstall:
 	rm -f /usr/local/bin/$(TARGET)
@@ -78,9 +90,9 @@ uninstall:
 help:
 	@echo "DTMF Lab Build System"
 	@echo "Usage:"
-	@echo "  make          - Build the project"
+	@echo "  make          - Build the project (binaries in $(BIN_DIR)/)"
 	@echo "  make clean    - Remove build artifacts"
 	@echo "  make run      - Build and show help"
-	@echo "  make test     - Build and run tests"
+	@echo "  make test     - Build and run tests (WAVs in $(WAV_DIR)/)"
 	@echo "  make install  - Install to /usr/local/bin"
 	@echo "  make uninstall- Remove from /usr/local/bin"

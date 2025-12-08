@@ -34,13 +34,41 @@ Each key produces two simultaneous tones (low frequency + high frequency):
 
 ### Build Instructions
 ```bash
-make            # Build the project
+make            # Build the project (binaries land in bin/)
 make clean      # Remove build artifacts
-make test       # Build and run tests
+make test       # Build and run tests (WAVs saved to artifacts/wav/)
 make help       # Show available make targets
 ```
 
-The compiled binary will be named `dtmf-lab`.
+The compiled binary will be placed in `bin/dtmf-lab`.
+
+#### GCC "cheat sheet" (manual builds without `make`)
+If you prefer to invoke the compiler directly, these one-liners mirror the
+Makefile defaults and keep executables in `bin/` while object files stay in
+`build/`:
+
+```bash
+# Create output folders (if they don't exist yet)
+mkdir -p build bin
+
+# Build the main generator
+gcc -Wall -Wextra -O2 -I./include -c src/dtmf.c -o build/dtmf.o
+gcc -Wall -Wextra -O2 -I./include -c src/main.c -o build/main.o
+gcc build/dtmf.o build/main.o -lm -o bin/dtmf-lab
+
+# Build the decoder CLI
+gcc -Wall -Wextra -O2 -I./include -c src/decode.c -o build/decode.o
+gcc -Wall -Wextra -O2 -I./include -c src/decode_main.c -o build/decode_main.o
+gcc build/dtmf.o build/decode.o build/decode_main.o -lm -o bin/dtmf-decode
+
+# Build the noise mixer utility
+gcc -Wall -Wextra -O2 -I./include -c src/noise_mix.c -o build/noise_mix.o
+gcc build/noise_mix.o -lm -o bin/noise-mix
+
+# Run tests and keep generated WAVs under artifacts/wav/
+mkdir -p artifacts/wav
+./bin/dtmf-lab -o artifacts/wav/manual_test.wav 123
+```
 
 ## Usage
 
@@ -48,7 +76,7 @@ The compiled binary will be named `dtmf-lab`.
 
 #### Basic Usage
 ```bash
-./dtmf-lab <key or sequence>
+./bin/dtmf-lab <key or sequence>
 ```
 
 #### Options
@@ -63,29 +91,29 @@ The compiled binary will be named `dtmf-lab`.
 
 Generate a single tone for key '5':
 ```bash
-./dtmf-lab 5
+./bin/dtmf-lab 5
 ```
 
 Generate a phone number sequence:
 ```bash
-./dtmf-lab -o phone.wav 5551234
+./bin/dtmf-lab -o artifacts/wav/phone.wav 5551234
 ```
 
 Generate with custom timing:
 ```bash
-./dtmf-lab -d 300 -g 100 -o custom.wav 911
+./bin/dtmf-lab -d 300 -g 100 -o artifacts/wav/custom.wav 911
 ```
 
 High-quality audio (44.1kHz):
 ```bash
-./dtmf-lab -r 44100 -o hq.wav 123
+./bin/dtmf-lab -r 44100 -o artifacts/wav/hq.wav 123
 ```
 
 Generate special keys:
 ```bash
-./dtmf-lab '*'
-./dtmf-lab '#'
-./dtmf-lab ABCD
+./bin/dtmf-lab '*'
+./bin/dtmf-lab '#'
+./bin/dtmf-lab ABCD
 ```
 
 ### Web-Based GUI
@@ -184,7 +212,7 @@ Run the included test suite:
 make test
 ```
 
-This will generate several test WAV files:
+This will generate several test WAV files in `artifacts/wav/`:
 - `test_5.wav` - Single key test
 - `test_sequence.wav` - Numeric sequence (0-9)
 - `test_star.wav` - Star key (*)
