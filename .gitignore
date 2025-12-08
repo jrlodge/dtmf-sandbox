@@ -1,0 +1,19 @@
+# Build artifacts
+build/
+*.o
+dtmf-lab
+
+# WAV files
+*.wav
+
+# Editor and IDE files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.sublime-*
+
+# OS files
+.DS_Store
+Thumbs.db
