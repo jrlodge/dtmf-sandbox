@@ -1,19 +1,72 @@
 # Build artifacts
 build/
+dist/
+bin/
+artifacts/
 *.o
+*.a
+*.so
+*.dylib
+*.dll
+*.out
+*.exe
+*.exe*
+*.obj
+*.lib
+*.lo
+*.la
+*.pch
+*.dSYM/
+*.stackdump
+
+# Project binaries
+.dt_stamp
+*.elf
 dtmf-lab
 
-# WAV files
+# Audio assets
 *.wav
+*.flac
+*.mp3
+*.m4a
+*.aiff
+*.aif
+*.ogg
 
-# Editor and IDE files
+# Coverage and debug
+*.gcda
+*.gcno
+*.gcov
+lcov.info
+coverage/
+cover/
+*.profraw
+*.profdata
+*.gcov.json
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
 *.swp
 *.swo
 *~
-.vscode/
-.idea/
-*.sublime-*
+*.pid
+*.seed
+*.orig
+*.bak
+*.cache
 
 # OS files
 .DS_Store
 Thumbs.db
+Desktop.ini
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.sublime-*
+*.code-workspace
+*.clangd
+*.clang-tidy
+*.clang-format
