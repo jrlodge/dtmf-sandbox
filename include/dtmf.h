@@ -89,6 +89,8 @@ typedef struct {
     double q1;
     double q2;
     int n;
+    double cosine;  /* Precomputed cos(2*PI/n) */
+    double sine;    /* Precomputed sin(2*PI/n) */
 } goertzel_state_t;
 
 /**

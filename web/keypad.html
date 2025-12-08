@@ -196,6 +196,11 @@
     </div>
 
     <script>
+        // Configuration constants
+        const TONE_DURATION_MS = 200;
+        const TONE_GAP_MS = 100;
+        const TONE_AMPLITUDE = 0.3;
+
         // DTMF frequency table
         const dtmfFrequencies = {
             '1': [697, 1209], '2': [697, 1336], '3': [697, 1477], 'A': [697, 1633],
@@ -215,7 +220,7 @@
         }
 
         // Generate and play DTMF tone
-        function playTone(key, duration = 200) {
+        function playTone(key, duration = TONE_DURATION_MS) {
             initAudio();
             
             const freqs = dtmfFrequencies[key];
@@ -248,7 +253,7 @@
             gainNode.connect(audioContext.destination);
 
             // Set volume (mix two tones)
-            gainNode.gain.value = 0.3;
+            gainNode.gain.value = TONE_AMPLITUDE;
 
             // Play tone
             const startTime = audioContext.currentTime;
@@ -273,8 +278,8 @@
             
             sequence.forEach((key, index) => {
                 setTimeout(() => {
-                    playTone(key, 200);
-                }, index * 300); // 200ms tone + 100ms gap
+                    playTone(key, TONE_DURATION_MS);
+                }, index * (TONE_DURATION_MS + TONE_GAP_MS));
             });
         }
 

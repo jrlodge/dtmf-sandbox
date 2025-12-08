@@ -179,6 +179,11 @@ void goertzel_init(goertzel_state_t *state, double target_freq, int sample_rate,
     state->q1 = 0.0;
     state->q2 = 0.0;
     state->n = n;
+    
+    /* Precompute sin and cos for magnitude calculation */
+    double angle = 2.0 * M_PI / n;
+    state->cosine = cos(angle);
+    state->sine = sin(angle);
 }
 
 void goertzel_process_sample(goertzel_state_t *state, double sample) {
@@ -192,8 +197,9 @@ void goertzel_process_sample(goertzel_state_t *state, double sample) {
 double goertzel_magnitude(const goertzel_state_t *state) {
     if (!state) return 0.0;
     
-    double real = state->q1 - state->q2 * cos(2.0 * M_PI / state->n);
-    double imag = state->q2 * sin(2.0 * M_PI / state->n);
+    /* Use precomputed sine and cosine values */
+    double real = state->q1 - state->q2 * state->cosine;
+    double imag = state->q2 * state->sine;
     
     return sqrt(real * real + imag * imag);
 }
