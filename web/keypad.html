@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DTMF Keypad</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 400px;
+            width: 100%;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .display {
+            background: #f5f5f5;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            min-height: 60px;
+            font-size: 24px;
+            font-family: 'Courier New', monospace;
+            text-align: center;
+            word-wrap: break-word;
+            color: #333;
+        }
+
+        .keypad {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .key {
+            background: linear-gradient(180deg, #ffffff 0%, #f0f0f0 100%);
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            padding: 20px;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.1s;
+            color: #333;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .key:hover {
+            background: linear-gradient(180deg, #f8f8f8 0%, #e8e8e8 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .key:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            background: linear-gradient(180deg, #e8e8e8 0%, #d8d8d8 100%);
+        }
+
+        .key.pressed {
+            background: linear-gradient(180deg, #667eea 0%, #5568d3 100%);
+            color: white;
+            border-color: #667eea;
+        }
+
+        .key-label {
+            font-size: 10px;
+            display: block;
+            margin-top: 5px;
+            color: #666;
+            font-weight: normal;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .control-btn {
+            background: linear-gradient(180deg, #667eea 0%, #5568d3 100%);
+            border: none;
+            border-radius: 10px;
+            padding: 12px;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .control-btn:hover {
+            background: linear-gradient(180deg, #5568d3 0%, #4458bc 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .control-btn:active {
+            transform: translateY(0);
+        }
+
+        .control-btn.clear {
+            background: linear-gradient(180deg, #f56565 0%, #e53e3e 100%);
+        }
+
+        .control-btn.clear:hover {
+            background: linear-gradient(180deg, #e53e3e 0%, #c53030 100%);
+        }
+
+        .status {
+            margin-top: 15px;
+            text-align: center;
+            color: #666;
+            font-size: 12px;
+            min-height: 18px;
+        }
+
+        .status.error {
+            color: #e53e3e;
+        }
+
+        .status.success {
+            color: #48bb78;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔊 DTMF Keypad</h1>
+        <p class="subtitle">Click buttons to generate DTMF tones</p>
+        
+        <div class="display" id="display">Press a key...</div>
+        
+        <div class="keypad">
+            <button class="key" data-key="1" onclick="playTone('1')">1</button>
+            <button class="key" data-key="2" onclick="playTone('2')">2<span class="key-label">ABC</span></button>
+            <button class="key" data-key="3" onclick="playTone('3')">3<span class="key-label">DEF</span></button>
+            <button class="key" data-key="A" onclick="playTone('A')">A</button>
+            
+            <button class="key" data-key="4" onclick="playTone('4')">4<span class="key-label">GHI</span></button>
+            <button class="key" data-key="5" onclick="playTone('5')">5<span class="key-label">JKL</span></button>
+            <button class="key" data-key="6" onclick="playTone('6')">6<span class="key-label">MNO</span></button>
+            <button class="key" data-key="B" onclick="playTone('B')">B</button>
+            
+            <button class="key" data-key="7" onclick="playTone('7')">7<span class="key-label">PQRS</span></button>
+            <button class="key" data-key="8" onclick="playTone('8')">8<span class="key-label">TUV</span></button>
+            <button class="key" data-key="9" onclick="playTone('9')">9<span class="key-label">WXYZ</span></button>
+            <button class="key" data-key="C" onclick="playTone('C')">C</button>
+            
+            <button class="key" data-key="*" onclick="playTone('*')">*</button>
+            <button class="key" data-key="0" onclick="playTone('0')">0<span class="key-label">+</span></button>
+            <button class="key" data-key="#" onclick="playTone('#')">#</button>
+            <button class="key" data-key="D" onclick="playTone('D')">D</button>
+        </div>
+        
+        <div class="controls">
+            <button class="control-btn clear" onclick="clearDisplay()">Clear</button>
+            <button class="control-btn" onclick="playSequence()">Play Sequence</button>
+        </div>
+        
+        <div class="status" id="status"></div>
+    </div>
+
+    <script>
+        // Configuration constants
+        const TONE_DURATION_MS = 200;
+        const TONE_GAP_MS = 100;
+        const TONE_AMPLITUDE = 0.3;
+
+        // DTMF frequency table
+        const dtmfFrequencies = {
+            '1': [697, 1209], '2': [697, 1336], '3': [697, 1477], 'A': [697, 1633],
+            '4': [770, 1209], '5': [770, 1336], '6': [770, 1477], 'B': [770, 1633],
+            '7': [852, 1209], '8': [852, 1336], '9': [852, 1477], 'C': [852, 1633],
+            '*': [941, 1209], '0': [941, 1336], '#': [941, 1477], 'D': [941, 1633]
+        };
+
+        let audioContext;
+        let sequence = [];
+
+        // Initialize Web Audio API
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        // Generate and play DTMF tone
+        function playTone(key, duration = TONE_DURATION_MS) {
+            initAudio();
+            
+            const freqs = dtmfFrequencies[key];
+            if (!freqs) {
+                setStatus('Invalid key!', 'error');
+                return;
+            }
+
+            // Add to sequence
+            sequence.push(key);
+            updateDisplay();
+
+            // Visual feedback
+            const button = document.querySelector(`[data-key="${key}"]`);
+            if (button) {
+                button.classList.add('pressed');
+                setTimeout(() => button.classList.remove('pressed'), duration);
+            }
+
+            // Create oscillators for low and high frequency
+            const lowOsc = audioContext.createOscillator();
+            const highOsc = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            lowOsc.frequency.value = freqs[0];
+            highOsc.frequency.value = freqs[1];
+
+            lowOsc.connect(gainNode);
+            highOsc.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            // Set volume (mix two tones)
+            gainNode.gain.value = TONE_AMPLITUDE;
+
+            // Play tone
+            const startTime = audioContext.currentTime;
+            const endTime = startTime + duration / 1000;
+
+            lowOsc.start(startTime);
+            highOsc.start(startTime);
+            lowOsc.stop(endTime);
+            highOsc.stop(endTime);
+
+            setStatus(`Played: ${key}`, 'success');
+        }
+
+        // Play the entire sequence
+        function playSequence() {
+            if (sequence.length === 0) {
+                setStatus('No sequence to play!', 'error');
+                return;
+            }
+
+            setStatus('Playing sequence...', 'success');
+            
+            sequence.forEach((key, index) => {
+                setTimeout(() => {
+                    playTone(key, TONE_DURATION_MS);
+                }, index * (TONE_DURATION_MS + TONE_GAP_MS));
+            });
+        }
+
+        // Clear the display and sequence
+        function clearDisplay() {
+            sequence = [];
+            updateDisplay();
+            setStatus('Cleared', 'success');
+        }
+
+        // Update the display
+        function updateDisplay() {
+            const display = document.getElementById('display');
+            if (sequence.length === 0) {
+                display.textContent = 'Press a key...';
+            } else {
+                display.textContent = sequence.join(' ');
+            }
+        }
+
+        // Set status message
+        function setStatus(message, type = '') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = 'status ' + type;
+            
+            if (message) {
+                setTimeout(() => {
+                    status.textContent = '';
+                    status.className = 'status';
+                }, 3000);
+            }
+        }
+
+        // Keyboard support
+        document.addEventListener('keydown', (e) => {
+            const key = e.key.toUpperCase();
+            if (dtmfFrequencies[key]) {
+                e.preventDefault();
+                playTone(key);
+            }
+        });
+
+        // Show initial message
+        setStatus('Ready! Click or press keys', 'success');
+    </script>
+</body>
+</html>
