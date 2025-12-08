@@ -24,14 +24,14 @@
 #define SAMPLE_RATE 8000
 
 /* --- Thresholds (tunable) --- */
-#define THR_SIG 1e8               /* Minimum combined energy to consider a tone. */
-#define THR_ROWREL 6.0            /* Row peak dominance over next row (dB). */
-#define THR_COLREL 6.0            /* Column peak dominance over next column (dB). */
-#define TWIST_REV_MAX_DB 8.0      /* Row louder than column upper bound (dB). */
-#define TWIST_STD_MAX_DB 4.0      /* Column louder than row upper bound (dB). */
-#define THR_ROW2_MAX_DB -20.0     /* Row 2nd harmonic relative to row peak (dB). */
-#define THR_COL2_MAX_DB -20.0     /* Column 2nd harmonic relative to col peak (dB). */
-#define STABILITY_BLOCKS 2        /* Blocks required before emitting digit. */
+#define THR_SIG 1e6          // be less picky about absolute energy
+#define THR_ROWREL 3.0       // only 3 dB dominance required
+#define THR_COLREL 3.0
+#define TWIST_REV_MAX_DB 12.0
+#define TWIST_STD_MAX_DB 8.0
+#define THR_ROW2_MAX_DB 0.0  // effectively disable harmonic rejection for now
+#define THR_COL2_MAX_DB 0.0
+#define STABILITY_BLOCKS 1   // accept after a single block to start with
 #define ENERGY_EPS 1e-12
 
 /* --- WAV loader (16-bit PCM mono only) --- */
