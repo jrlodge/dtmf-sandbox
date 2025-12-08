@@ -1,3 +1,14 @@
+/*
+ * Entry point for the DTMF Lab command-line utility.
+ *
+ * This file focuses purely on user interaction and translating CLI arguments
+ * into the parameter structures consumed by the DTMF generation library. The
+ * heavy lifting (tone synthesis and WAV serialization) is handled in dtmf.c;
+ * here we validate inputs, provide help text, and orchestrate which library
+ * functions to call based on whether the user asked for a single key or an
+ * entire sequence.
+ */
+
 #include "dtmf.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -5,6 +16,7 @@
 #include <getopt.h>
 
 static void print_usage(const char *prog_name) {
+    /* Human-friendly help text that mirrors the README and --help output. */
     printf("DTMF Lab - DTMF Tone Generator\n");
     printf("Usage: %s [OPTIONS] <key or sequence>\n\n", prog_name);
     printf("Options:\n");
@@ -22,14 +34,16 @@ static void print_usage(const char *prog_name) {
 }
 
 int main(int argc, char *argv[]) {
-    /* Default parameters */
+    /* Default parameters that match the README guidance. The user can
+     * override all of these via command-line flags. */
     char *output_file = "dtmf.wav";
     int duration_ms = 200;
     int gap_ms = 50;
     int sample_rate = 8000;
     double amplitude = 0.8;
     
-    /* Parse command-line options */
+    /* Long-form options mirror the short flags to make the interface easier
+     * to discover (e.g., --duration as an alias for -d). */
     static struct option long_options[] = {
         {"output",    required_argument, 0, 'o'},
         {"duration",  required_argument, 0, 'd'},
@@ -43,6 +57,12 @@ int main(int argc, char *argv[]) {
     int opt;
     int option_index = 0;
     
+    /*
+     * getopt_long iterates over arguments until all recognized flags are
+     * consumed. Input validation happens immediately so we can fail early on
+     * clearly invalid values (negative durations, out-of-range amplitudes,
+     * etc.).
+     */
     while ((opt = getopt_long(argc, argv, "o:d:g:r:a:h", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'o':
@@ -85,7 +105,9 @@ int main(int argc, char *argv[]) {
         }
     }
     
-    /* Check if key/sequence was provided */
+    /* After option parsing, argv[optind] points at the first non-option
+     * argument. At least one key is required; otherwise we display the usage
+     * banner and exit with an error. */
     if (optind >= argc) {
         fprintf(stderr, "Error: No key or sequence provided\n\n");
         print_usage(argv[0]);
@@ -94,7 +116,9 @@ int main(int argc, char *argv[]) {
     
     const char *input = argv[optind];
     
-    /* Set up tone parameters */
+    /* Populate the tone parameters that will be shared across generation
+     * calls. These settings apply to either a single tone or every element in
+     * a multi-key sequence. */
     dtmf_params_t params;
     params.sample_rate = sample_rate;
     params.duration_ms = duration_ms;

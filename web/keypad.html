@@ -4,7 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DTMF Keypad</title>
+    <!--
+        Single-page Web Audio demo for generating DTMF tones in-browser.
+        The HTML lays out a 4x4 keypad plus a tiny control panel; the embedded
+        JavaScript wires the buttons to the Web Audio API so every click (or
+        keyboard press) triggers the same dual-tone frequencies the C library
+        produces.
+    -->
     <style>
+        /* ===== Base resets and page layout ===== */
         * {
             margin: 0;
             padding: 0;
@@ -21,6 +29,7 @@
             padding: 20px;
         }
 
+        /* ===== Panel framing and typography ===== */
         .container {
             background: white;
             border-radius: 20px;
@@ -58,6 +67,7 @@
             color: #333;
         }
 
+        /* ===== Keypad styling ===== */
         .keypad {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -162,9 +172,10 @@
     <div class="container">
         <h1>🔊 DTMF Keypad</h1>
         <p class="subtitle">Click buttons to generate DTMF tones</p>
-        
+
         <div class="display" id="display">Press a key...</div>
-        
+
+        <!-- 4x4 keypad matching the standard DTMF layout -->
         <div class="keypad">
             <button class="key" data-key="1" onclick="playTone('1')">1</button>
             <button class="key" data-key="2" onclick="playTone('2')">2<span class="key-label">ABC</span></button>
@@ -186,7 +197,8 @@
             <button class="key" data-key="#" onclick="playTone('#')">#</button>
             <button class="key" data-key="D" onclick="playTone('D')">D</button>
         </div>
-        
+
+        <!-- Controls for clearing the buffered sequence or replaying it -->
         <div class="controls">
             <button class="control-btn clear" onclick="clearDisplay()">Clear</button>
             <button class="control-btn" onclick="playSequence()">Play Sequence</button>
@@ -196,12 +208,15 @@
     </div>
 
     <script>
-        // Configuration constants
+        // ===== Configuration constants =====
+        // These mirror the defaults used by the CLI so the web demo behaves
+        // similarly to the native tone generator.
         const TONE_DURATION_MS = 200;
         const TONE_GAP_MS = 100;
         const TONE_AMPLITUDE = 0.3;
 
-        // DTMF frequency table
+        // DTMF frequency table shared by the web keypad and the C library.
+        // Each entry is [low, high] frequency in Hz.
         const dtmfFrequencies = {
             '1': [697, 1209], '2': [697, 1336], '3': [697, 1477], 'A': [697, 1633],
             '4': [770, 1209], '5': [770, 1336], '6': [770, 1477], 'B': [770, 1633],
@@ -212,24 +227,27 @@
         let audioContext;
         let sequence = [];
 
-        // Initialize Web Audio API
+        // Initialize Web Audio API lazily so the page loads without prompting
+        // the browser for audio permissions until the first user interaction.
         function initAudio() {
             if (!audioContext) {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
         }
 
-        // Generate and play DTMF tone
+        // Generate and play a DTMF tone for a single key. The tone is created
+        // by mixing two oscillators at the corresponding low/high frequencies.
         function playTone(key, duration = TONE_DURATION_MS) {
             initAudio();
-            
+
             const freqs = dtmfFrequencies[key];
             if (!freqs) {
                 setStatus('Invalid key!', 'error');
                 return;
             }
 
-            // Add to sequence
+            // Add to sequence so the display and "Play Sequence" button stay
+            // in sync with every interaction.
             sequence.push(key);
             updateDisplay();
 
@@ -240,7 +258,8 @@
                 setTimeout(() => button.classList.remove('pressed'), duration);
             }
 
-            // Create oscillators for low and high frequency
+            // Create oscillators for low and high frequency and route them
+            // through a shared gain node to keep the perceived volume stable.
             const lowOsc = audioContext.createOscillator();
             const highOsc = audioContext.createOscillator();
             const gainNode = audioContext.createGain();
@@ -255,7 +274,9 @@
             // Set volume (mix two tones)
             gainNode.gain.value = TONE_AMPLITUDE;
 
-            // Play tone
+            // Play tone by scheduling start/stop times. Using AudioContext
+            // timing keeps playback accurate even when setTimeout callbacks
+            // jitter slightly.
             const startTime = audioContext.currentTime;
             const endTime = startTime + duration / 1000;
 
@@ -267,7 +288,8 @@
             setStatus(`Played: ${key}`, 'success');
         }
 
-        // Play the entire sequence
+        // Play the entire recorded sequence by chaining playTone calls with a
+        // simple timeout-based scheduler.
         function playSequence() {
             if (sequence.length === 0) {
                 setStatus('No sequence to play!', 'error');
@@ -290,7 +312,8 @@
             setStatus('Cleared', 'success');
         }
 
-        // Update the display
+        // Update the display area to reflect the buffered sequence. When empty,
+        // show a friendly prompt instead of a blank box.
         function updateDisplay() {
             const display = document.getElementById('display');
             if (sequence.length === 0) {
@@ -300,7 +323,7 @@
             }
         }
 
-        // Set status message
+        // Set status message with optional semantic class for styling
         function setStatus(message, type = '') {
             const status = document.getElementById('status');
             status.textContent = message;
@@ -314,7 +337,8 @@
             }
         }
 
-        // Keyboard support
+        // Keyboard support: pressing a matching key on the keyboard triggers
+        // the same tone as clicking the on-screen keypad.
         document.addEventListener('keydown', (e) => {
             const key = e.key.toUpperCase();
             if (dtmfFrequencies[key]) {

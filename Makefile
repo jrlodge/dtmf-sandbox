@@ -1,4 +1,10 @@
 # DTMF Lab Makefile
+#
+# This build script keeps the project intentionally simple: a handful of
+# variables describe where source, headers, and build artifacts live, and a few
+# phony targets cover the common workflows (build, clean, run help text, and a
+# small smoke-test suite that emits WAV files). The resulting binary is
+# self-contained and depends only on the C standard library and libm.
 
 CC = gcc
 CFLAGS = -Wall -Wextra -O2 -I./include
