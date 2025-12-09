@@ -24,7 +24,7 @@ artifacts/
 *.elf
 dtmf-lab
 
-# Audio assets
+# Audio assets (ignore general audio, but allow testdata audio)
 *.wav
 *.flac
 *.mp3
@@ -32,6 +32,11 @@ dtmf-lab
 *.aiff
 *.aif
 *.ogg
+
+# BUT keep test WAV/OGG files under testdata/
+!testdata/
+!testdata/**/*.wav
+!testdata/**/*.ogg
 
 # Coverage and debug
 *.gcda
