@@ -18,3 +18,7 @@ gcc build/dtmf.o build/decode.o build/decode_main.o -lm -o bin/dtmf-decode
 gcc -Wall -Wextra -O2 -I./include -c src/noise_mix.c -o build/noise_mix.o
 gcc build/noise_mix.o -lm -o bin/noise-mix
 
+# Build the silence generator
+gcc -Wall -Wextra -O2 -I./include -c src/silence_gen.c -o build/silence_gen.o
+gcc build/silence_gen.o build/dtmf.o -lm -o bin/silence-gen
+

@@ -226,81 +226,146 @@ static int write_wav(const char *path, const int16_t *samples, int num_samples, 
 
 /* --- Noise mixing --- */
 
-static int mix_white_noise(const WavData *wav, double snr_db, int16_t **out_samples) {
-    if (!wav || !wav->samples || wav->num_samples <= 0) {
-        return 0;
+static double compute_power_int16(const int16_t *samples, int count) {
+    if (!samples || count <= 0) return 0.0;
+
+    double power = 0.0;
+    for (int i = 0; i < count; i++) {
+        double s = (double)samples[i];
+        power += s * s;
     }
+    return power / (double)count;
+}
 
-    double signal_power = 0.0;
-    for (int i = 0; i < wav->num_samples; i++) {
-        double s = (double)wav->samples[i];
-        signal_power += s * s;
-    }
-    signal_power /= (double)wav->num_samples;
-
-    if (signal_power <= 0.0) {
-        fprintf(stderr, "Signal power is zero; cannot compute SNR\n");
-        return 0;
-    }
-
-    double target_noise_power = signal_power / pow(10.0, snr_db / 10.0);
-
-    double *noise = (double *)malloc(sizeof(double) * (size_t)wav->num_samples);
+static double *prepare_white_noise(int num_samples, double *out_raw_power) {
+    double *noise = (double *)malloc(sizeof(double) * (size_t)num_samples);
     if (!noise) {
         fprintf(stderr, "malloc failed\n");
-        return 0;
+        return NULL;
     }
 
     double raw_power = 0.0;
-    for (int i = 0; i < wav->num_samples; i++) {
+    for (int i = 0; i < num_samples; i++) {
         double r = ((double)rand() / (double)RAND_MAX) * 2.0 - 1.0;
         noise[i] = r;
         raw_power += r * r;
     }
-    raw_power /= (double)wav->num_samples;
 
-    if (raw_power <= 0.0) {
-        fprintf(stderr, "Noise generation failed (zero raw power)\n");
-        free(noise);
+    if (out_raw_power) {
+        *out_raw_power = raw_power / (double)num_samples;
+    }
+
+    return noise;
+}
+
+static double *tile_noise_from_wav(const int16_t *noise_samples, int noise_len, int target_len, double *out_raw_power) {
+    if (!noise_samples || noise_len <= 0 || target_len <= 0) {
+        return NULL;
+    }
+
+    double *buffer = (double *)malloc(sizeof(double) * (size_t)target_len);
+    if (!buffer) {
+        fprintf(stderr, "malloc failed\n");
+        return NULL;
+    }
+
+    double raw_power = 0.0;
+    for (int i = 0; i < target_len; i++) {
+        double sample = (double)noise_samples[i % noise_len];
+        buffer[i] = sample;
+        raw_power += sample * sample;
+    }
+
+    if (out_raw_power) {
+        *out_raw_power = raw_power / (double)target_len;
+    }
+
+    return buffer;
+}
+
+static int mix_signal_with_noise(const WavData *signal, const double *noise, int num_samples, double noise_power, double snr_db, int16_t **out_samples) {
+    if (!signal || !signal->samples || signal->num_samples <= 0 || !noise || num_samples <= 0) {
         return 0;
     }
 
-    double scale = sqrt(target_noise_power / raw_power);
+    double signal_power = compute_power_int16(signal->samples, num_samples);
+    double effective_signal_power = signal_power;
 
-    int16_t *mixed = (int16_t *)malloc(sizeof(int16_t) * (size_t)wav->num_samples);
+    if (noise_power <= 0.0) {
+        fprintf(stderr, "Noise power is zero; cannot mix\n");
+        return 0;
+    }
+
+    if (signal_power <= 0.0) {
+        /*
+         * Silence or near-silence: fall back to using the raw noise power as
+         * the reference. This keeps the output energy sensible while still
+         * honoring the requested SNR scaling factor.
+         */
+        fprintf(stderr, "Warning: Signal power is zero; using noise power as SNR reference.\n");
+        effective_signal_power = noise_power;
+    }
+
+    double target_noise_power = effective_signal_power / pow(10.0, snr_db / 10.0);
+    double scale = sqrt(target_noise_power / noise_power);
+
+    int16_t *mixed = (int16_t *)malloc(sizeof(int16_t) * (size_t)num_samples);
     if (!mixed) {
         fprintf(stderr, "malloc failed\n");
-        free(noise);
         return 0;
     }
 
-    for (int i = 0; i < wav->num_samples; i++) {
-        double n = noise[i] * scale;
-        double m = (double)wav->samples[i] + n;
+    for (int i = 0; i < num_samples; i++) {
+        double m = (double)signal->samples[i] + noise[i] * scale;
         mixed[i] = (int16_t)CLAMP_INT16((int)m);
     }
 
-    free(noise);
     *out_samples = mixed;
     return 1;
+}
+
+static int mix_white_noise(const WavData *wav, double snr_db, int16_t **out_samples) {
+    double raw_noise_power = 0.0;
+    double *noise = prepare_white_noise(wav->num_samples, &raw_noise_power);
+    if (!noise) {
+        return 0;
+    }
+
+    int status = mix_signal_with_noise(wav, noise, wav->num_samples, raw_noise_power, snr_db, out_samples);
+    free(noise);
+    return status;
+}
+
+static int mix_with_noise_wav(const WavData *signal, const WavData *noise_wav, double snr_db, int16_t **out_samples) {
+    double raw_noise_power = 0.0;
+    double *tiled = tile_noise_from_wav(noise_wav->samples, noise_wav->num_samples, signal->num_samples, &raw_noise_power);
+    if (!tiled) {
+        return 0;
+    }
+
+    int status = mix_signal_with_noise(signal, tiled, signal->num_samples, raw_noise_power, snr_db, out_samples);
+    free(tiled);
+    return status;
 }
 
 /* --- CLI --- */
 
 static void print_usage(const char *prog_name) {
     printf("Noise Mixing Utility\n");
-    printf("Usage: %s -i input.wav -o output.wav --snr-db <value> --mode <white>\n", prog_name);
+    printf("Usage: %s -i input.wav -o output.wav --snr-db <value> [--mode white | --noise-wav file.wav]\n", prog_name);
     printf("\nOptions:\n");
     printf("  -i, --input     Path to clean input WAV (mono, 16-bit PCM)\n");
     printf("  -o, --output    Path to output WAV\n");
     printf("  --snr-db <dB>   Target signal-to-noise ratio in decibels\n");
-    printf("  --mode <white>  Noise type (only 'white' supported)\n");
+    printf("  --mode <white>  Noise type (only 'white' supported; default)\n");
+    printf("  --noise-wav     Path to external mono 8 kHz 16-bit PCM WAV noise source\n");
 }
 
 int main(int argc, char *argv[]) {
     const char *input_path = NULL;
     const char *output_path = NULL;
-    const char *mode = NULL;
+    const char *mode = "white";
+    const char *noise_path = NULL;
     double snr_db = 0.0;
     int snr_set = 0;
 
@@ -309,6 +374,7 @@ int main(int argc, char *argv[]) {
         {"output",  required_argument, 0, 'o'},
         {"snr-db",  required_argument, 0,  1 },
         {"mode",    required_argument, 0,  2 },
+        {"noise-wav", required_argument, 0,  3 },
         {"help",    no_argument,       0, 'h'},
         {0, 0, 0, 0}
     };
@@ -331,6 +397,9 @@ int main(int argc, char *argv[]) {
             case 2:
                 mode = optarg;
                 break;
+            case 3:
+                noise_path = optarg;
+                break;
             case 'h':
                 print_usage(argv[0]);
                 return 0;
@@ -340,13 +409,15 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if (!input_path || !output_path || !mode || !snr_set) {
+    if (!input_path || !output_path || !snr_set) {
         fprintf(stderr, "Error: Missing required arguments.\n\n");
         print_usage(argv[0]);
         return 1;
     }
 
-    if (strcmp(mode, "white") != 0) {
+    if (noise_path && mode && strcmp(mode, "white") != 0) {
+        fprintf(stderr, "Info: Both --mode and --noise-wav provided; using external noise WAV and ignoring mode '%s'.\n", mode);
+    } else if (strcmp(mode, "white") != 0) {
         fprintf(stderr, "Error: Unsupported mode '%s'. Only 'white' is available.\n", mode);
         return 1;
     }
@@ -364,14 +435,46 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    WavData noise_wav = {0};
     int16_t *mixed = NULL;
-    if (!mix_white_noise(&wav, snr_db, &mixed)) {
-        free_wav(&wav);
-        return 1;
+
+    if (noise_path) {
+        noise_wav = load_wav(noise_path);
+        if (!noise_wav.samples) {
+            free_wav(&wav);
+            fprintf(stderr, "Failed to read noise WAV '%s'\n", noise_path);
+            return 1;
+        }
+
+        if (noise_wav.sample_rate != wav.sample_rate) {
+            fprintf(stderr, "Error: Sample rate mismatch (input %d Hz vs noise %d Hz)\n", wav.sample_rate, noise_wav.sample_rate);
+            free_wav(&wav);
+            free_wav(&noise_wav);
+            return 1;
+        }
+
+        if (noise_wav.num_samples <= 0) {
+            fprintf(stderr, "Error: Noise WAV is empty\n");
+            free_wav(&wav);
+            free_wav(&noise_wav);
+            return 1;
+        }
+
+        if (!mix_with_noise_wav(&wav, &noise_wav, snr_db, &mixed)) {
+            free_wav(&wav);
+            free_wav(&noise_wav);
+            return 1;
+        }
+    } else {
+        if (!mix_white_noise(&wav, snr_db, &mixed)) {
+            free_wav(&wav);
+            return 1;
+        }
     }
 
     int ok = write_wav(output_path, mixed, wav.num_samples, wav.sample_rate);
     free_wav(&wav);
+    free_wav(&noise_wav);
     free(mixed);
 
     if (!ok) {
@@ -379,6 +482,10 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    printf("Wrote noisy file to '%s' (SNR %.2f dB, mode %s)\n", output_path, snr_db, mode);
+    if (noise_path) {
+        printf("Wrote noisy file to '%s' (SNR %.2f dB, noise source %s)\n", output_path, snr_db, noise_path);
+    } else {
+        printf("Wrote noisy file to '%s' (SNR %.2f dB, mode %s)\n", output_path, snr_db, mode);
+    }
     return 0;
 }

@@ -65,6 +65,10 @@ gcc build/dtmf.o build/decode.o build/decode_main.o -lm -o bin/dtmf-decode
 gcc -Wall -Wextra -O2 -I./include -c src/noise_mix.c -o build/noise_mix.o
 gcc build/noise_mix.o -lm -o bin/noise-mix
 
+# Build the silence generator
+gcc -Wall -Wextra -O2 -I./include -c src/silence_gen.c -o build/silence_gen.o
+gcc build/silence_gen.o build/dtmf.o -lm -o bin/silence-gen
+
 # Run tests and keep generated WAVs under artifacts/wav/
 mkdir -p artifacts/wav
 ./bin/dtmf-lab -o artifacts/wav/manual_test.wav 123
@@ -115,6 +119,20 @@ Generate special keys:
 ./bin/dtmf-lab '#'
 ./bin/dtmf-lab ABCD
 ```
+
+## Test sample generation
+
+- ATC background noise clips live under `testdata/atc/` (mono 8 kHz 16-bit PCM WAV).
+- DTMF sequences used for bulk test generation are defined in `testdata/codes.txt` (one code per line; lines starting with `#` are ignored).
+
+To build the helper binaries and generate the full stress-test WAV set:
+
+```bash
+bash build.sh
+bash tools/gen_dtmf_tests.sh
+```
+
+The generated WAVs land in `artifacts/wav/tests/` (ignored by git) and include clean, white-noise, ATC-noise, noise-only, and silence cases across multiple spacing regimes.
 
 ### Web-Based GUI
 
