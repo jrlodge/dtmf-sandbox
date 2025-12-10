@@ -62,9 +62,7 @@ for noise_file in "${ATC_DIR}"/*.wav; do
 done
 shopt -u nullglob
 
-mapfile -t CODE_LIST < <(read_codes)
-
-for code in "${CODE_LIST[@]}"; do
+while IFS= read -r code; do
     safe_code="$(sanitize_code "$code")"
 
     dense_clean="${OUTPUT_DIR}/clean__dense__code_${safe_code}.wav"
@@ -95,4 +93,4 @@ for code in "${CODE_LIST[@]}"; do
     done
     shopt -u nullglob
 
-done
+done < <(read_codes)
