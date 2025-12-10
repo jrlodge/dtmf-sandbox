@@ -19,24 +19,28 @@ WAV_DIR = artifacts/wav
 TARGET = dtmf-lab
 DECODER_TARGET = dtmf-decode
 NOISE_TARGET = noise-mix
+SILENCE_TARGET = silence-gen
 
 TARGET_PATH = $(BIN_DIR)/$(TARGET)
 DECODER_TARGET_PATH = $(BIN_DIR)/$(DECODER_TARGET)
 NOISE_TARGET_PATH = $(BIN_DIR)/$(NOISE_TARGET)
+SILENCE_TARGET_PATH = $(BIN_DIR)/$(SILENCE_TARGET)
 
 SOURCES = $(SRC_DIR)/dtmf.c $(SRC_DIR)/main.c
 DECODER_SOURCES = $(SRC_DIR)/dtmf.c $(SRC_DIR)/decode.c $(SRC_DIR)/decode_main.c
 NOISE_SOURCES = $(SRC_DIR)/noise_mix.c
+SILENCE_SOURCES = $(SRC_DIR)/silence_gen.c $(SRC_DIR)/dtmf.c
 
 OBJECTS = $(BUILD_DIR)/dtmf.o $(BUILD_DIR)/main.o
 DECODER_OBJECTS = $(BUILD_DIR)/dtmf.o $(BUILD_DIR)/decode.o $(BUILD_DIR)/decode_main.o
 NOISE_OBJECTS = $(BUILD_DIR)/noise_mix.o
+SILENCE_OBJECTS = $(BUILD_DIR)/silence_gen.o $(BUILD_DIR)/dtmf.o
 
 HEADERS = $(INC_DIR)/dtmf.h $(INC_DIR)/decode.h
 
 .PHONY: all clean run test
 
-all: $(TARGET_PATH) $(DECODER_TARGET_PATH) $(NOISE_TARGET_PATH)
+all: $(TARGET_PATH) $(DECODER_TARGET_PATH) $(NOISE_TARGET_PATH) $(SILENCE_TARGET_PATH)
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -58,6 +62,9 @@ $(DECODER_TARGET_PATH): $(DECODER_OBJECTS) | $(BIN_DIR)
 
 $(NOISE_TARGET_PATH): $(NOISE_OBJECTS) | $(BIN_DIR)
 	$(CC) $(NOISE_OBJECTS) $(LDFLAGS) -o $@
+
+$(SILENCE_TARGET_PATH): $(SILENCE_OBJECTS) | $(BIN_DIR)
+	$(CC) $(SILENCE_OBJECTS) $(LDFLAGS) -o $@
 
 clean:
 	rm -rf $(BUILD_DIR) $(BIN_DIR) $(WAV_DIR) *.wav
