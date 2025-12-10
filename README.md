@@ -42,6 +42,15 @@ make help       # Show available make targets
 
 The compiled binary will be placed in `bin/dtmf-lab`.
 
+**Windows build:** A PowerShell equivalent to `build.sh` lives at `build.ps1`. With
+PowerShell 7+ and GCC/Clang on your `PATH`, run:
+
+```powershell
+pwsh ./build.ps1
+```
+
+The script emits `.exe` binaries in `bin/` (e.g., `bin/dtmf-lab.exe`).
+
 #### GCC "cheat sheet" (manual builds without `make`)
 If you prefer to invoke the compiler directly, these one-liners mirror the
 Makefile defaults and keep executables in `bin/` while object files stay in
@@ -133,6 +142,16 @@ bash tools/gen_dtmf_tests.sh
 ```
 
 The generated WAVs land in `artifacts/wav/tests/` (ignored by git) and include clean, white-noise, ATC-noise, noise-only, and silence cases across multiple spacing regimes.
+
+One-step evaluation wrappers are available for macOS (bash) and Windows (PowerShell):
+
+```bash
+# macOS
+bash tools/run_evaluation_macos.sh
+
+# Windows
+pwsh tools/run_evaluation_windows.ps1
+```
 
 ## Current evaluation
 
