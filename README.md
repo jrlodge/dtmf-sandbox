@@ -134,6 +134,38 @@ bash tools/gen_dtmf_tests.sh
 
 The generated WAVs land in `artifacts/wav/tests/` (ignored by git) and include clean, white-noise, ATC-noise, noise-only, and silence cases across multiple spacing regimes.
 
+## Current evaluation
+
+An automated harness generates noisy test fixtures and measures decoder accuracy:
+
+- `tools/gen_dtmf_tests.sh` builds the helper binaries, then emits clean/white-noise/ATC-noise/noise-only/silence WAVs under `artifacts/wav/tests/` using the sequences in `testdata/codes.txt`.
+- `tools/evaluate_dtmf.py` infers ground truth from filenames, runs `bin/dtmf-decode` over every WAV, writes a CSV report, and prints per-condition/per-SNR accuracy.
+
+Run the full loop with:
+
+```bash
+bash build.sh
+bash tools/gen_dtmf_tests.sh
+python3 tools/evaluate_dtmf.py
+```
+
+Current baseline (latest run):
+
+- Clean: 100% sequence accuracy on all samples.
+- White noise: ~72% sequence accuracy across SNR sweeps.
+- ATC noise: ~65% sequence accuracy across SNR sweeps.
+- Silence / noise-only: generally low false positives; see the CSV for details.
+
+Use the CSV (`artifacts/wav/report.csv`) and the printed summary from `tools/evaluate_dtmf.py` to track regressions or improvements.
+
+## Future Work / Planned Improvements
+
+1. **Frame-level streaming state machine**: Turn the per-file decoder into a streaming, block-based state machine that maintains IDLE/IN_DIGIT states. For each block, compute a candidate digit (or “no digit”) with a quality score, accumulate consecutive agreeing frames during IN_DIGIT, emit only when the tone spans a minimum duration (≈50–100 ms), and require a minimum silence gap before the next digit. Goal: cluster frames into robust digits and reject brief noise blips.
+2. **Per-frame quality gates and sanity checks**: Before a frame proposes a digit, enforce an absolute energy threshold, row/column dominance gaps, and twist limits (row vs. column balance). Expose these thresholds as configurable constants near the top of the decoder for tuning with `tools/evaluate_dtmf.py`. Goal: reduce mis-classifications and false positives on noise-only/silence and low-SNR signals.
+3. **Optional bandpass filter pre-processing**: Add an optional 300–3400 Hz bandpass (e.g., one or two biquad IIR stages) ahead of the Goertzel bank, controlled by a compile-time flag so we can A/B benchmark. Goal: improve robustness to out-of-band rumble and ATC chatter with strong low-frequency content.
+
+Each step will be evaluated incrementally with `tools/evaluate_dtmf.py`, watching per-condition accuracy (clean, white, ATC, noise-only, silence) and per-SNR trends to confirm improvements.
+
 ### Web-Based GUI
 
 Open `web/keypad.html` in a modern web browser:

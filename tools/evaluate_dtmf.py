@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Evaluate DTMF decoder accuracy on generated WAV fixtures.
 
+This script is used to measure the effect of decoder changes (state machine,
+thresholds, bandpass) on accuracy across noise types and SNRs so we can
+compare pre/post tuning runs.
+
 The script walks through all WAV files under artifacts/wav/tests/, infers the
 expected DTMF code from the filename, runs bin/dtmf-decode for each sample, and
 compares the decoded output with the ground truth. It writes a detailed CSV

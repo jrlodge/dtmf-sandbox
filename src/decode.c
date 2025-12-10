@@ -267,6 +267,10 @@ void dtmf_detector_init(DtmfDetectorState *st, const DtmfFilterConfig *cfg) {
 }
 
 char dtmf_detector_process_block(DtmfDetectorState *st, const int16_t *samples) {
+    // TODO: Implement frame-level streaming state machine (IDLE/IN_DIGIT) with minimum tone/gap durations and per-digit majority vote; see README "Future Work".
+    // TODO: Add per-frame quality gates (absolute energy, row/column dominance, twist) with thresholds exposed as tunable constants; see README "Future Work".
+    // TODO: Allow an optional bandpass front-end (e.g., 300–3400 Hz) before Goertzel, controllable via a compile-time flag; see README "Future Work".
+
     DtmfEnergyTemplate e = {0};
     dtmf_compute_energy_block(samples, st->cfg, &e);
 
