@@ -160,7 +160,7 @@ Use the CSV (`artifacts/wav/report.csv`) and the printed summary from `tools/eva
 
 ## Future Work / Planned Improvements
 
-1. **Frame-level streaming state machine**: Turn the per-file decoder into a streaming, block-based state machine that maintains IDLE/IN_DIGIT states. For each block, compute a candidate digit (or “no digit”) with a quality score, accumulate consecutive agreeing frames during IN_DIGIT, emit only when the tone spans a minimum duration (≈50–100 ms), and require a minimum silence gap before the next digit. Goal: cluster frames into robust digits and reject brief noise blips.
+1. **Frame-level streaming state machine** (initial implementation landed): The decoder now runs as a streaming IDLE/IN_DIGIT state machine that clusters frames into digits with minimum tone and gap durations. Next steps are tuning and experimenting with stronger quality gating.
 2. **Per-frame quality gates and sanity checks**: Before a frame proposes a digit, enforce an absolute energy threshold, row/column dominance gaps, and twist limits (row vs. column balance). Expose these thresholds as configurable constants near the top of the decoder for tuning with `tools/evaluate_dtmf.py`. Goal: reduce mis-classifications and false positives on noise-only/silence and low-SNR signals.
 3. **Optional bandpass filter pre-processing**: Add an optional 300–3400 Hz bandpass (e.g., one or two biquad IIR stages) ahead of the Goertzel bank, controlled by a compile-time flag so we can A/B benchmark. Goal: improve robustness to out-of-band rumble and ATC chatter with strong low-frequency content.
 

@@ -33,11 +33,18 @@ typedef struct {
     double col2_energy[4];
 } DtmfEnergyTemplate;
 
+typedef enum {
+    DTMF_STATE_IDLE = 0,
+    DTMF_STATE_IN_DIGIT,
+} DtmfStreamState;
+
 typedef struct {
     const DtmfFilterConfig *cfg;
-    char last_digit;   /* Last digit emitted to the caller. */
-    char stable_digit; /* Digit currently accumulating stability. */
-    int  stable_count; /* How many consecutive blocks matched. */
+    DtmfStreamState state; /* Frame-level streaming state machine. */
+    char current_digit;    /* Candidate digit currently accumulating. */
+    int  current_frames;   /* Consecutive frames supporting current_digit. */
+    int  gap_frames;       /* Consecutive empty frames since last digit. */
+    char last_digit;       /* Last digit emitted to the caller. */
 } DtmfDetectorState;
 
 /* Initialize the precomputed Goertzel coefficients for tuned DTMF bins. */
