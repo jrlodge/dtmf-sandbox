@@ -292,8 +292,22 @@ static int mix_signal_with_noise(const WavData *signal, const double *noise, int
     double effective_signal_power = signal_power;
 
     if (noise_power <= 0.0) {
-        fprintf(stderr, "Noise power is zero; cannot mix\n");
-        return 0;
+        double recomputed = 0.0;
+        for (int i = 0; i < num_samples; i++) {
+            double n = noise[i];
+            recomputed += n * n;
+        }
+
+        recomputed /= (double)num_samples;
+
+        if (recomputed > 0.0) {
+            fprintf(stderr, "Warning: Provided noise power was non-positive; recalculated as %.6f.\n", recomputed);
+            noise_power = recomputed;
+        } else {
+            const double epsilon = 1e-9;
+            fprintf(stderr, "Warning: Noise power is zero; using epsilon %.1e to continue.\n", epsilon);
+            noise_power = epsilon;
+        }
     }
 
     if (signal_power <= 0.0) {
