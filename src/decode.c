@@ -31,8 +31,20 @@
 #define TWIST_STD_MAX_DB 8.0
 #define THR_ROW2_MAX_DB 0.0  // effectively disable harmonic rejection for now
 #define THR_COL2_MAX_DB 0.0
-#define STABILITY_BLOCKS 1   // accept after a single block to start with
 #define ENERGY_EPS 1e-12
+
+/*
+ * Streaming cadence parameters. Each block is 102 samples at 8 kHz (~12.75 ms).
+ * Minimum tone/gap durations are expressed in milliseconds then converted to
+ * frame counts so callers can tune in temporal units. With the defaults below
+ * that means MIN_DIGIT_FRAMES ≈ 5 frames (~64 ms) and MIN_GAP_FRAMES ≈ 4
+ * frames (~51 ms).
+ */
+#define FRAME_MS (DTMF_N * 1000.0 / SAMPLE_RATE)
+#define MIN_DIGIT_MS 60.0
+#define MIN_GAP_MS 40.0
+#define MIN_DIGIT_FRAMES ((int)ceil(MIN_DIGIT_MS / FRAME_MS))
+#define MIN_GAP_FRAMES ((int)ceil(MIN_GAP_MS / FRAME_MS))
 
 /* --- WAV loader (16-bit PCM mono only) --- */
 
@@ -261,15 +273,17 @@ static void find_peak(const double *arr, int len, double *peak, double *next, in
 
 void dtmf_detector_init(DtmfDetectorState *st, const DtmfFilterConfig *cfg) {
     st->cfg = cfg;
+    st->state = DTMF_STATE_IDLE;
+    st->current_digit = 0;
+    st->current_frames = 0;
+    st->gap_frames = 0;
     st->last_digit = 0;
-    st->stable_digit = 0;
-    st->stable_count = 0;
 }
 
 char dtmf_detector_process_block(DtmfDetectorState *st, const int16_t *samples) {
-    // TODO: Implement frame-level streaming state machine (IDLE/IN_DIGIT) with minimum tone/gap durations and per-digit majority vote; see README "Future Work".
-    // TODO: Add per-frame quality gates (absolute energy, row/column dominance, twist) with thresholds exposed as tunable constants; see README "Future Work".
-    // TODO: Allow an optional bandpass front-end (e.g., 300–3400 Hz) before Goertzel, controllable via a compile-time flag; see README "Future Work".
+    // Frame-level streaming state machine: classify each block, accumulate the
+    // same digit across multiple frames, and emit only after it persists for a
+    // minimum duration followed by a minimum gap.
 
     DtmfEnergyTemplate e = {0};
     dtmf_compute_energy_block(samples, st->cfg, &e);
@@ -279,59 +293,87 @@ char dtmf_detector_process_block(DtmfDetectorState *st, const int16_t *samples) 
     find_peak(e.row_energy, 4, &row_peak, &row_next, &row_idx);
     find_peak(e.col_energy, 4, &col_peak, &col_next, &col_idx);
 
+    char frame_digit = 0;
+
     double signal = row_peak + col_peak;
-    if (signal < THR_SIG) {
-        st->stable_digit = 0;
-        st->stable_count = 0;
-        st->last_digit = 0;
+    if (signal >= THR_SIG) {
+        double row_rel_db = 10.0 * log10(row_peak / (row_next + ENERGY_EPS));
+        double col_rel_db = 10.0 * log10(col_peak / (col_next + ENERGY_EPS));
+        if (row_rel_db >= THR_ROWREL && col_rel_db >= THR_COLREL) {
+            double rev_db = 10.0 * log10(row_peak / (col_peak + ENERGY_EPS));
+            double std_db = 10.0 * log10(col_peak / (row_peak + ENERGY_EPS));
+            if (rev_db <= TWIST_REV_MAX_DB && std_db <= TWIST_STD_MAX_DB) {
+                double row2_peak, row2_next, col2_peak, col2_next;
+                int dummy;
+                find_peak(e.row2_energy, 4, &row2_peak, &row2_next, &dummy);
+                find_peak(e.col2_energy, 4, &col2_peak, &col2_next, &dummy);
+                (void)row2_next;
+                (void)col2_next;
+
+                double row2_ratio = 10.0 * log10(row2_peak / (row_peak + ENERGY_EPS));
+                double col2_ratio = 10.0 * log10(col2_peak / (col_peak + ENERGY_EPS));
+                if (row2_ratio <= THR_ROW2_MAX_DB && col2_ratio <= THR_COL2_MAX_DB) {
+                    frame_digit = dtmf_map[row_idx][col_idx];
+                }
+            }
+        }
+    }
+
+    switch (st->state) {
+    case DTMF_STATE_IDLE:
+        if (frame_digit == 0) {
+            st->gap_frames = 0;
+            st->current_frames = 0;
+            st->current_digit = 0;
+            return 0;
+        }
+
+        st->state = DTMF_STATE_IN_DIGIT;
+        st->current_digit = frame_digit;
+        st->current_frames = 1;
+        st->gap_frames = 0;
         return 0;
-    }
 
-    double row_rel_db = 10.0 * log10(row_peak / (row_next + ENERGY_EPS));
-    double col_rel_db = 10.0 * log10(col_peak / (col_next + ENERGY_EPS));
-    if (row_rel_db < THR_ROWREL || col_rel_db < THR_COLREL) {
-        st->stable_digit = 0;
-        st->stable_count = 0;
-        st->last_digit = 0;
-        return 0;
-    }
+    case DTMF_STATE_IN_DIGIT:
+        if (frame_digit == st->current_digit) {
+            st->current_frames++;
+            st->gap_frames = 0;
+            return 0;
+        }
 
-    double rev_db = 10.0 * log10(row_peak / (col_peak + ENERGY_EPS));
-    double std_db = 10.0 * log10(col_peak / (row_peak + ENERGY_EPS));
-    if (rev_db > TWIST_REV_MAX_DB || std_db > TWIST_STD_MAX_DB) {
-        st->stable_digit = 0;
-        st->stable_count = 0;
-        st->last_digit = 0;
-        return 0;
-    }
+        if (frame_digit == 0) {
+            st->gap_frames++;
+            if (st->gap_frames < MIN_GAP_FRAMES) {
+                return 0;
+            }
 
-    double row2_peak, row2_next, col2_peak, col2_next;
-    int dummy;
-    find_peak(e.row2_energy, 4, &row2_peak, &row2_next, &dummy);
-    find_peak(e.col2_energy, 4, &col2_peak, &col2_next, &dummy);
-    (void)row2_next;
-    (void)col2_next;
+            char emit = 0;
+            if (st->current_frames >= MIN_DIGIT_FRAMES) {
+                emit = st->current_digit;
+                st->last_digit = emit;
+            }
 
-    double row2_ratio = 10.0 * log10(row2_peak / (row_peak + ENERGY_EPS));
-    double col2_ratio = 10.0 * log10(col2_peak / (col_peak + ENERGY_EPS));
-    if (row2_ratio > THR_ROW2_MAX_DB || col2_ratio > THR_COL2_MAX_DB) {
-        st->stable_digit = 0;
-        st->stable_count = 0;
-        st->last_digit = 0;
-        return 0;
-    }
+            st->state = DTMF_STATE_IDLE;
+            st->current_digit = 0;
+            st->current_frames = 0;
+            st->gap_frames = 0;
+            return emit;
+        }
 
-    char digit = dtmf_map[row_idx][col_idx];
-    if (digit == st->stable_digit) {
-        st->stable_count++;
-    } else {
-        st->stable_digit = digit;
-        st->stable_count = 1;
-    }
+        /* Frame flipped to a new digit before a gap. */
+        {
+            char emit = 0;
+            if (st->current_frames >= MIN_DIGIT_FRAMES) {
+                emit = st->current_digit;
+                st->last_digit = emit;
+            }
 
-    if (st->stable_count >= STABILITY_BLOCKS && digit != st->last_digit) {
-        st->last_digit = digit;
-        return digit;
+            st->current_digit = frame_digit;
+            st->current_frames = 1;
+            st->gap_frames = 0;
+            st->state = DTMF_STATE_IN_DIGIT;
+            return emit;
+        }
     }
 
     return 0;
@@ -368,10 +410,6 @@ void decode_wav(const char *path) {
         char d = dtmf_detector_process_block(&st, blk);
         if (d) {
             putchar(d);
-        }
-
-        if (d == 0 && st.stable_digit == 0) {
-            st.last_digit = 0; /* Allow repeats after silence. */
         }
     }
 
