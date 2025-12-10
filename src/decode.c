@@ -413,6 +413,12 @@ void decode_wav(const char *path) {
         }
     }
 
+    /* Flush any trailing digit that never got terminated by a gap. */
+    if (st.state == DTMF_STATE_IN_DIGIT && st.current_frames >= MIN_DIGIT_FRAMES) {
+        putchar(st.current_digit);
+    }
+
     putchar('\n');
     free_wav(&w);
 }
+
