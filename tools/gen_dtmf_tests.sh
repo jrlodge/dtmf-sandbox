@@ -172,7 +172,7 @@ while IFS= read -r code; do
             success=1
             for noise_name in "$first_noise" "$second_noise" "$third_noise"; do
                 [[ -z "$noise_name" ]] && continue
-                tmp_file="$(mktemp "${OUTPUT_DIR}/complex_tmp_XXXX.wav")"
+                tmp_file="${OUTPUT_DIR}/complex_tmp_${RANDOM}.wav"
                 tmp_paths+=("$tmp_file")
 
                 if [[ "$noise_name" == "white" ]]; then
