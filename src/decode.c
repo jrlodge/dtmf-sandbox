@@ -35,16 +35,25 @@
 
 /*
  * Streaming cadence parameters. Each block is 102 samples at 8 kHz (~12.75 ms).
- * Minimum tone/gap durations are expressed in milliseconds then converted to
- * frame counts so callers can tune in temporal units. With the defaults below
- * that means MIN_DIGIT_FRAMES ≈ 5 frames (~64 ms) and MIN_GAP_FRAMES ≈ 4
- * frames (~51 ms).
+ * MIN_DIGIT_MS / MIN_GAP_MS express minimum tone and gap durations in ms and
+ * are converted to frame counts so we can tune them in temporal units and keep
+ * the state machine portable to fixed-point implementations.
+ *
+ * With the defaults below:
+ *  - FRAME_MS         ≈ 12.75 ms
+ *  - MIN_DIGIT_FRAMES = ceil(40 / 12.75) = 4  (~51 ms of consistent tone)
+ *  - MIN_GAP_FRAMES   = ceil(40 / 12.75) = 4  (~51 ms of consistent gap)
+ *
+ * This makes the detector tolerant of ~50–60 ms DTMF pulses (as seen on real
+ * keypads) while still rejecting very brief noise blips. These thresholds are
+ * tuned using tools/evaluate_dtmf.py across the synthetic fixture suite
+ * (dense, sparse, jitter, offset, atc, complex, bursty).
  */
 #define FRAME_MS (DTMF_N * 1000.0 / SAMPLE_RATE)
-#define MIN_DIGIT_MS 60.0
-#define MIN_GAP_MS 40.0
+#define MIN_DIGIT_MS 40.0
+#define MIN_GAP_MS   40.0
 #define MIN_DIGIT_FRAMES ((int)ceil(MIN_DIGIT_MS / FRAME_MS))
-#define MIN_GAP_FRAMES ((int)ceil(MIN_GAP_MS / FRAME_MS))
+#define MIN_GAP_FRAMES   ((int)ceil(MIN_GAP_MS / FRAME_MS))
 
 /* --- WAV loader (16-bit PCM mono only) --- */
 
