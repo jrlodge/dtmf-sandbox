@@ -47,6 +47,18 @@ typedef struct {
     char last_digit;       /* Last digit emitted to the caller. */
 } DtmfDetectorState;
 
+typedef struct {
+    int    block_index;
+    double row_peak;
+    double col_peak;
+    double row2_peak;
+    double col2_peak;
+    double row2_ratio_db;
+    double col2_ratio_db;
+    char   frame_digit;
+    char   emitted_digit;
+} DtmfFrameFeatures;
+
 /* Initialize the precomputed Goertzel coefficients for tuned DTMF bins. */
 void dtmf_init_filter_config(DtmfFilterConfig *cfg);
 
@@ -62,7 +74,9 @@ void dtmf_detector_init(DtmfDetectorState *st, const DtmfFilterConfig *cfg);
  * Process one block; return 0 if no new digit was confirmed this block or the
  * ASCII digit if stability criteria were satisfied.
  */
-char dtmf_detector_process_block(DtmfDetectorState *st, const int16_t *samples);
+char dtmf_detector_process_block(DtmfDetectorState *st,
+                                const int16_t *samples,
+                                DtmfFrameFeatures *features);
 
 /* Decode a WAV file and print the detected DTMF digits to stdout. */
 void decode_wav(const char *path);
