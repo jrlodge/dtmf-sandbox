@@ -141,7 +141,7 @@ bash build.sh
 bash tools/gen_dtmf_tests.sh
 ```
 
-The generated WAVs land in `artifacts/wav/tests/` (ignored by git) and include clean, white-noise, ATC-noise, noise-only, and silence cases across multiple spacing regimes.
+The generated WAVs land in `artifacts/wav/tests/` (ignored by git) and include clean, white-noise, ATC-noise, multi-noise, bursty-noise, noise-only, and silence cases across multiple spacing regimes with jitter/offset variants to stress timing.
 
 One-step evaluation wrappers are available for macOS (bash) and Windows (PowerShell):
 
@@ -157,7 +157,7 @@ pwsh tools/run_evaluation_windows.ps1
 
 An automated harness generates noisy test fixtures and measures decoder accuracy:
 
-- `tools/gen_dtmf_tests.sh` builds the helper binaries, then emits clean/white-noise/ATC-noise/noise-only/silence WAVs under `artifacts/wav/tests/` using the sequences in `testdata/codes.txt`.
+- `tools/gen_dtmf_tests.sh` builds the helper binaries, then emits clean/white-noise/ATC-noise/multi-noise/bursty-noise/noise-only/silence WAVs under `artifacts/wav/tests/` using the sequences in `testdata/codes.txt` (dense, sparse, jittered, and offset timing).
 - `tools/evaluate_dtmf.py` infers ground truth from filenames, runs `bin/dtmf-decode` over every WAV, writes a CSV report, and prints per-condition/per-SNR accuracy.
 
 Run the full loop with:
