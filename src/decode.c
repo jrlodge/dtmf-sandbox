@@ -16,6 +16,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <errno.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -204,6 +207,55 @@ static void free_wav(WavData *wav) {
     }
 }
 
+static int ensure_dir_exists(const char *path) {
+    struct stat st;
+    if (stat(path, &st) == 0) {
+        return S_ISDIR(st.st_mode);
+    }
+
+    if (errno != ENOENT) {
+        return 0;
+    }
+
+    if (mkdir(path, 0777) == 0) {
+        return 1;
+    }
+
+    return errno == EEXIST;
+}
+
+static char *build_harmonics_path(const char *wav_path) {
+    const char *base = strrchr(wav_path, '/');
+    base = base ? base + 1 : wav_path;
+
+    size_t base_len = strlen(base);
+    char *filename = (char *)malloc(base_len + 5);
+    if (!filename) {
+        return NULL;
+    }
+
+    memcpy(filename, base, base_len + 1);
+    char *dot = strrchr(filename, '.');
+    if (dot) {
+        strcpy(dot, ".csv");
+    } else {
+        strcat(filename, ".csv");
+    }
+
+    const char *prefix = "artifacts/harmonics/";
+    size_t full_len = strlen(prefix) + strlen(filename) + 1;
+    char *full_path = (char *)malloc(full_len);
+    if (!full_path) {
+        free(filename);
+        return NULL;
+    }
+
+    strcpy(full_path, prefix);
+    strcat(full_path, filename);
+    free(filename);
+    return full_path;
+}
+
 /* --- Filter configuration --- */
 
 static void set_cfg(GoertzelConfig *dst, double k) {
@@ -289,7 +341,9 @@ void dtmf_detector_init(DtmfDetectorState *st, const DtmfFilterConfig *cfg) {
     st->last_digit = 0;
 }
 
-char dtmf_detector_process_block(DtmfDetectorState *st, const int16_t *samples) {
+char dtmf_detector_process_block(DtmfDetectorState *st,
+                                const int16_t *samples,
+                                DtmfFrameFeatures *features) {
     // Frame-level streaming state machine: classify each block, accumulate the
     // same digit across multiple frames, and emit only after it persists for a
     // minimum duration followed by a minimum gap.
@@ -302,6 +356,13 @@ char dtmf_detector_process_block(DtmfDetectorState *st, const int16_t *samples) 
     find_peak(e.row_energy, 4, &row_peak, &row_next, &row_idx);
     find_peak(e.col_energy, 4, &col_peak, &col_next, &col_idx);
 
+    double row2_peak, row2_next, col2_peak, col2_next;
+    int dummy;
+    find_peak(e.row2_energy, 4, &row2_peak, &row2_next, &dummy);
+    find_peak(e.col2_energy, 4, &col2_peak, &col2_next, &dummy);
+    (void)row2_next;
+    (void)col2_next;
+
     char frame_digit = 0;
 
     double signal = row_peak + col_peak;
@@ -312,13 +373,6 @@ char dtmf_detector_process_block(DtmfDetectorState *st, const int16_t *samples) 
             double rev_db = 10.0 * log10(row_peak / (col_peak + ENERGY_EPS));
             double std_db = 10.0 * log10(col_peak / (row_peak + ENERGY_EPS));
             if (rev_db <= TWIST_REV_MAX_DB && std_db <= TWIST_STD_MAX_DB) {
-                double row2_peak, row2_next, col2_peak, col2_next;
-                int dummy;
-                find_peak(e.row2_energy, 4, &row2_peak, &row2_next, &dummy);
-                find_peak(e.col2_energy, 4, &col2_peak, &col2_next, &dummy);
-                (void)row2_next;
-                (void)col2_next;
-
                 double row2_ratio = 10.0 * log10(row2_peak / (row_peak + ENERGY_EPS));
                 double col2_ratio = 10.0 * log10(col2_peak / (col_peak + ENERGY_EPS));
                 if (row2_ratio <= THR_ROW2_MAX_DB && col2_ratio <= THR_COL2_MAX_DB) {
@@ -326,6 +380,16 @@ char dtmf_detector_process_block(DtmfDetectorState *st, const int16_t *samples) 
                 }
             }
         }
+    }
+
+    if (features) {
+        features->row_peak = row_peak;
+        features->col_peak = col_peak;
+        features->row2_peak = row2_peak;
+        features->col2_peak = col2_peak;
+        features->row2_ratio_db = 10.0 * log10(row2_peak / (row_peak + ENERGY_EPS));
+        features->col2_ratio_db = 10.0 * log10(col2_peak / (col_peak + ENERGY_EPS));
+        features->frame_digit = frame_digit;
     }
 
     switch (st->state) {
@@ -409,6 +473,29 @@ void decode_wav(const char *path) {
     DtmfDetectorState st;
     dtmf_detector_init(&st, &cfg);
 
+    const char *dump_env = getenv("DTMF_DUMP_HARMONICS");
+    FILE *harmonics_file = NULL;
+    char *csv_path = NULL;
+
+    if (dump_env) {
+        if (ensure_dir_exists("artifacts") && ensure_dir_exists("artifacts/harmonics")) {
+            csv_path = build_harmonics_path(path);
+            if (csv_path) {
+                harmonics_file = fopen(csv_path, "w");
+                if (harmonics_file) {
+                    fprintf(harmonics_file,
+                            "block_index,frame_digit,emitted_digit,row_peak,col_peak,row2_peak,col2_peak,row2_ratio_db,col2_ratio_db\n");
+                } else {
+                    fprintf(stderr, "Failed to open harmonics CSV: %s\n", csv_path);
+                }
+            } else {
+                fprintf(stderr, "Failed to allocate harmonics CSV path\n");
+            }
+        } else {
+            fprintf(stderr, "Failed to create harmonics output directory\n");
+        }
+    }
+
     int blocks = w.num_samples / DTMF_N;
 
     printf("Decoding %s (sample_rate=%d, blocks=%d)\n", path, w.sample_rate, blocks);
@@ -416,9 +503,28 @@ void decode_wav(const char *path) {
 
     for (int b = 0; b < blocks; b++) {
         const int16_t *blk = &w.samples[b * DTMF_N];
-        char d = dtmf_detector_process_block(&st, blk);
+        DtmfFrameFeatures features = {0};
+        char d = dtmf_detector_process_block(&st, blk, harmonics_file ? &features : NULL);
         if (d) {
             putchar(d);
+        }
+
+        if (harmonics_file) {
+            features.block_index = b;
+            features.emitted_digit = d;
+            char frame_char = features.frame_digit ? features.frame_digit : '0';
+            char emitted_char = features.emitted_digit ? features.emitted_digit : '0';
+            fprintf(harmonics_file,
+                    "%d,%c,%c,%.10f,%.10f,%.10f,%.10f,%.10f,%.10f\n",
+                    features.block_index,
+                    frame_char,
+                    emitted_char,
+                    features.row_peak,
+                    features.col_peak,
+                    features.row2_peak,
+                    features.col2_peak,
+                    features.row2_ratio_db,
+                    features.col2_ratio_db);
         }
     }
 
@@ -428,6 +534,10 @@ void decode_wav(const char *path) {
     }
 
     putchar('\n');
+    if (harmonics_file) {
+        fclose(harmonics_file);
+    }
+    free(csv_path);
     free_wav(&w);
 }
 
